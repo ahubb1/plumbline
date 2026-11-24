@@ -1,0 +1,59 @@
+# Licence gate for Plumbline (plan sections 1, 5 and 6).
+# Run: cargo deny check licenses bans sources
+#
+# Only permissive licences are allowed. Strong copyleft (GPL, AGPL, LGPL) is never allowed:
+# a crate that needs one must be replaced, not excepted. A crate offered under a choice
+# ("Apache-2.0 OR GPL-2.0-only") passes through its permissive arm.
+
+[graph]
+# The app ships for 64-bit Windows only, so only that target's dependency graph is judged.
+targets = ["x86_64-pc-windows-msvc"]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.9
+# Test-only dependencies are judged too, so nothing slips in unseen.
+include-dev = true
+# The allow-list is the policy, not a record of what happens to be in use today.
+unused-allowed-license = "allow"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "CC0-1.0",
+    # Fonts only (Liberation Sans in vendor/fonts). No crate needs it while egui's
+    # `default_fonts` feature stays off.
+    "OFL-1.1",
+]
+# MPL-2.0 is not allowed in general. Each exception names one crate and says why.
+exceptions = [
+    # Test-only, never shipped: egui_kittest (dev-dependency of pl-app) -> dify -> colored.
+    # It is not linked into plumbline.exe or plumb.exe. Remove when egui_kittest drops it.
+    { allow = ["MPL-2.0"], crate = "colored" },
+]
+
+[licenses.private]
+# The workspace's own crates are `publish = false`.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+deny = [
+    # Copyleft or commercially licensed crates the plan rules out (sections 3 to 5).
+    { crate = "evalexpr", reason = "AGPL-3.0-only from 14.0.0; formulas use our own parser" },
+    { crate = "mupdf", reason = "AGPL-3.0; needs an explicit owner decision" },
+    { crate = "mupdf-sys", reason = "AGPL-3.0; needs an explicit owner decision" },
+    { crate = "slint", reason = "GPL-3.0-only unless a commercial or royalty-free licence is taken" },
+    { crate = "poppler", reason = "GPL" },
+    { crate = "epaint_default_fonts", reason = "adds Ubuntu-font-1.0; ship one OFL font instead" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

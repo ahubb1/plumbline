@@ -1,0 +1,4 @@
+# Static CRT so the shipped exes need no VC++ redistributable (plan section 11).
+# Checked by `cargo run -p xtask -- dist`, which rejects any vcruntime/msvcp import.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

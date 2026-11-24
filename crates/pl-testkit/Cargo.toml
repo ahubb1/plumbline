@@ -1,0 +1,17 @@
+[package]
+name = "pl-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+lopdf.workspace = true
+
+[dev-dependencies]
+# Second, independent parser for the cross-check test only.
+hayro-syntax.workspace = true
+
+[[bin]]
+name = "pl-fixtures"
+path = "src/bin/pl-fixtures.rs"

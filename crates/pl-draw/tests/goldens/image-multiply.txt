@@ -1,0 +1,42 @@
+bounds 60.00 45.00 180.00 125.00
+ink 5063.5
+
+
+
+
+
+
+
+
+               ..............................
+               ##########xxxxxxxxxxxxxxxxxxxx
+               ##########xxxxxxxxxxxxxxxxxxxx
+               ###xxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+               xxxxxxxxxxxxxxxxxxxxxxxxxxx:::
+               xxxxxxxxxxxxxxxxxxxxxxxxxxx:::
+               xxxxxxxxxxxxxxxxxxxx::::::::::
+               xxxxxxxxxxxxxxxxxx::::::::::::
+               xxxxxxxxxxxxxxx:::::::::::::::
+               xxxxxxxxxx::::::::::::::::::::
+               xxxxxxxxxx::::::::::::::::::::
+               xxx:::::::::::::::::::::::::::
+               ::::::::::::::::::::::::::::::
+               ::::::::::::::::::::::::::::::
+
+
+
+
+
+
+
+
+
+
+

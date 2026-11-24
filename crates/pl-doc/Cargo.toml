@@ -1,0 +1,36 @@
+[package]
+name = "pl-doc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+pl-pdf.workspace = true
+pl-render.workspace = true
+pl-scene.workspace = true
+# Read-only map of the original file for content-snap scene builds and the /UserUnit scan.
+memmap2.workspace = true
+# Recent-files list on disk.
+serde.workspace = true
+# `float_roundtrip`: the journal and the clipboard must read back exactly the coordinates that
+# were written.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+# The markups list's conventions for checkmarks and custom column values, so that what the
+# commands here write is what the list reads.
+pl-takeoff.workspace = true
+# The annotation model behind the Command enum, undo and save.
+pl-annot.workspace = true
+# DrawLists of edited markups, and the raster used to composite them over a page render.
+pl-draw.workspace = true
+# Image stamps: decoding a PNG or JPEG the user picks, and PNG for pictures in the journal.
+# Only these two formats are compiled in.
+image = { workspace = true, features = ["jpeg"] }
+# pl-tools is not a dependency: `docview::DocView` is this crate's own minimal trait, and the
+# user interface connects the two.
+
+[dev-dependencies]
+pl-testkit.workspace = true
+tempfile.workspace = true

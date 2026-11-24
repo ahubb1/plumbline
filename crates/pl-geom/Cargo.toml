@@ -1,0 +1,9 @@
+[package]
+name = "pl-geom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+kurbo.workspace = true

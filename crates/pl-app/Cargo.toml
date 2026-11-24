@@ -1,0 +1,39 @@
+[package]
+name = "pl-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+name = "pl_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "plumbline"
+path = "src/main.rs"
+
+[dependencies]
+pl-doc.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_tiles.workspace = true
+rfd.workspace = true
+# Tool state machines, presets and arrange functions (no egui types in there).
+pl-tools.workspace = true
+# Tool presets on disk.
+serde_json.workspace = true
+# "Copy snapshot": images on the system clipboard, behind `platform::SystemClipboard`.
+arboard.workspace = true
+# The markups list: a table that lays out only the rows on screen.
+egui_table.workspace = true
+# The layout of the list and the columns of the user, on disk.
+serde.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+pl-testkit.workspace = true
+tempfile.workspace = true
+# Reads the exported workbook back in the list tests.
+calamine.workspace = true

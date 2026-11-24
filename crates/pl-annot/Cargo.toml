@@ -1,0 +1,18 @@
+[package]
+name = "pl-annot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+pl-draw.workspace = true
+pl-pdf.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Saved files are rendered by PDFium and compared with the tiny-skia raster of the DrawList.
+pl-render.workspace = true
+pl-testkit.workspace = true
+tempfile.workspace = true

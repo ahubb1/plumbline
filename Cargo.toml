@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = ["pack"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+pl-geom = { path = "crates/pl-geom" }
+pl-draw = { path = "crates/pl-draw" }
+pl-pdf = { path = "crates/pl-pdf" }
+pl-render = { path = "crates/pl-render" }
+pl-scene = { path = "crates/pl-scene" }
+pl-annot = { path = "crates/pl-annot" }
+pl-takeoff = { path = "crates/pl-takeoff" }
+pl-compare = { path = "crates/pl-compare" }
+pl-text = { path = "crates/pl-text" }
+pl-tools = { path = "crates/pl-tools" }
+pl-doc = { path = "crates/pl-doc" }
+pl-testkit = { path = "crates/pl-testkit" }
+
+eframe = { version = "=0.37.0", default-features = false, features = ["wgpu", "glow", "accesskit"] }
+egui = { version = "=0.37.0", default-features = false }
+egui_kittest = { version = "=0.37.0", features = ["snapshot", "wgpu"] }
+egui_tiles = "=0.18.0"
+egui_table = "=0.11.0"
+rfd = "=0.18.0"
+arboard = { version = "=3.7.0", default-features = false, features = ["image-data"] }
+pdfium-render = { version = "=0.9.6", default-features = false, features = ["pdfium_8125", "thread_safe", "image_025"] }
+lopdf = "=0.47.0"
+hayro-interpret = "=0.9.0"
+hayro-syntax = "=0.9.0"
+pdf-writer = "=0.15.0"
+tiny-skia = "=0.12.0"
+ttf-parser = { version = "=0.25.1", default-features = false, features = ["std"] }
+kurbo = "=0.13.1"
+rstar = "=0.14.0"
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+quick_cache = "=0.7.0"
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+sha2 = "0.11"
+serde_json = "1"
+serde = { version = "=1.0.229", features = ["derive"] }
+memmap2 = "=0.9.12"
+windows-sys = "=0.61.2"
+windows = "=0.62.2"
+tempfile = "=3.27.0"
+rust_xlsxwriter = { version = "=0.104.0", default-features = false }
+calamine = { version = "=0.38.0", default-features = false }
+zip = { version = "=9.8.2", default-features = false, features = ["deflate"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

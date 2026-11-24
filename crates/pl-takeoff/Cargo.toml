@@ -1,0 +1,28 @@
+[package]
+name = "pl-takeoff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+pl-annot.workspace = true
+# The legend table is laid out as a DrawList.
+pl-draw.workspace = true
+# Only for the object types pl-pdf re-exports (the private-data dictionary of an annotation).
+pl-pdf.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+# XLSX export of the markups list.
+rust_xlsxwriter.workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+# Reads the exported workbook back in tests.
+calamine.workspace = true
+# Opens the workbook package itself, to check what the reader above does not expose.
+zip.workspace = true
+# A real PDF to save the list columns into and read them back from.
+pl-testkit.workspace = true
+tempfile.workspace = true

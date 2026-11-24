@@ -1,0 +1,16 @@
+[package]
+name = "pl-scene"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+hayro-interpret.workspace = true
+hayro-syntax.workspace = true
+rstar.workspace = true
+kurbo.workspace = true
+
+[dev-dependencies]
+pl-testkit.workspace = true

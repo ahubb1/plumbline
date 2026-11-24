@@ -1,0 +1,9 @@
+/target
+/vendor/pdfium/
+/vendor/dl/
+/pack/target/
+/pack/payload/
+/pack/out/
+/vendor/qpdf/
+*.pdf.tmp
+/samples/

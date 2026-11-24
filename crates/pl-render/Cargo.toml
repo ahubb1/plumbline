@@ -1,0 +1,20 @@
+[package]
+name = "pl-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+pdfium-render.workspace = true
+memmap2.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pl-testkit.workspace = true
+serde_json.workspace = true
+# Test-only: pl-pdf owns the layer-override builder (it is the sole lopdf importer); the layer
+# spike feeds its output to the render mirror.
+pl-pdf.workspace = true

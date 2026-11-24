@@ -1,0 +1,20 @@
+[package]
+name = "pl-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pl-geom.workspace = true
+pl-draw.workspace = true
+pl-annot.workspace = true
+# Tool presets are stored by the application as JSON.
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+# Tool output is saved through pl-annot and pl-pdf on the fixture pages and read back.
+pl-pdf.workspace = true
+pl-testkit.workspace = true
+tempfile.workspace = true

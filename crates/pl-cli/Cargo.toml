@@ -1,0 +1,26 @@
+[package]
+name = "pl-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "plumb"
+path = "src/main.rs"
+
+[dependencies]
+pl-doc.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+# PNG output of `plumb render`.
+image.workspace = true
+# The column list and list layout files of `plumb export`.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The fixture generator is for tests only (plan section 6): it must not be linked into the
+# shipped plumb.exe. Its own `pl-fixtures` binary writes the fixtures to a directory.
+pl-testkit.workspace = true
+tempfile.workspace = true

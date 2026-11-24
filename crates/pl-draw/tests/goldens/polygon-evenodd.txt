@@ -1,0 +1,42 @@
+bounds 71.40 35.15 188.60 146.62
+ink 2284.6
+
+
+
+                                .
+                                x
+                               .#.
+                               :x:
+                               xxx
+                              .#x#.
+                              :xxx:
+                              xxxxx
+                             .#xxx#.
+                             :xxxxx:
+                             x#####x
+                  :##########:::::::##########:
+                   .xxxxxxxxx       xxxxxxxxx.
+                    .x#xxxxx:       :xxxxx#x.
+                      :#xxx#.       .#xxx#:
+                       .xxxx         xxxx.
+                         :#:         :#:
+                          ::         ::
+                          :#x       x#:
+                          xxxx.   .xxxx
+                         .#xxx#: :#xxx#.
+                         :xxxxx#x#xxxxx:
+                         xxxxxx: :xxxxxx
+                        .#xx#x.   .x#xx#.
+                        :#x#:       :#x#:
+                        xxx.         .xxx
+                        #x.           .x#
+                       ::               ::
+
+
+
+
+
+
+
+
+
