@@ -11,7 +11,7 @@ overlay, OCR and an installer are still to come. The design and milestones are i
 
 ## Download
 
-Get `Plumbline.exe` from the [latest release](../../releases/latest) and double-click it. It is
+Get `Plumbline.exe` from the [Releases page](https://github.com/ahubb1/plumbline/releases) and double-click it. It is
 a single file with nothing to install: on first run it unpacks the app into
 `%LOCALAPPDATA%\Plumbline\app` and starts it. Windows 10 or 11, 64-bit.
 
