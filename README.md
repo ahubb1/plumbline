@@ -50,20 +50,35 @@ version, the Windows version, whether the app ran as administrator, which graphi
 tried and why it failed. It holds no document contents. When it reaches 1 MB it moves to
 `plumbline.log.1` and a new one starts.
 
-**Forcing OpenGL.** Plumbline draws with wgpu (Direct3D 12 or Vulkan) and falls back to OpenGL by
-itself when wgpu fails to start, whether it reports an error or crashes before the window opens.
+**Choosing a renderer.** Plumbline can draw its window three ways: `wgpu` (Direct3D 12 on the
+graphics card; Vulkan is never used), `glow` (OpenGL) and `software` (Direct3D 12's software
+renderer, WARP, which is part of Windows: slower, and it does not draw with the graphics
+driver; Windows still asks the driver about the card while it lists the Direct3D 12 devices, so
+a driver that crashes even then breaks this one too, and only `glow` avoids Direct3D 12
+altogether). `Plumbline.exe` tries them in that order, one window at a time: when one crashes or
+fails before the first picture is on screen, it starts the app again with the next. The one that
+worked is remembered in `%LOCALAPPDATA%\Plumbline\renderer.txt` and tried first next time; delete
+that file to start the search again (after a driver update, for example). If none works, one
+message gives the exit codes and the log's location. Started directly (the unpacked
+`plumbline.exe`), the app tries the same order inside one run, but a crash inside the graphics
+driver ends that run.
+
 If the window stays blank, flickers or the app closes later on, an outdated or unusual graphics
-driver is the usual cause; try OpenGL directly:
+driver is the usual cause. Updating it (Settings > Windows Update > Advanced options > Optional
+updates, or the PC maker's website) is the best fix; otherwise choose a renderer yourself:
 
 1. Right-click `Plumbline.exe` and choose **Create shortcut** (on Windows 11, it is under
    **Show more options**).
-2. Right-click the shortcut, choose **Properties**, and add ` --renderer glow` to the end of
-   **Target**, after the closing quote, for example `"C:\Downloads\Plumbline.exe" --renderer glow`.
+2. Right-click the shortcut, choose **Properties**, and add ` --renderer glow` (or
+   ` --renderer software`) to the end of **Target**, after the closing quote, for example
+   `"C:\Downloads\Plumbline.exe" --renderer glow`.
 3. Start Plumbline from that shortcut.
 
-`--renderer wgpu` forces wgpu with no fallback. Setting the environment variable
-`PLUMBLINE_RENDERER` to `glow` or `wgpu` does the same for every start; the command-line flag wins
-over it.
+`--renderer wgpu|glow|software` uses only that renderer, with no fallback and nothing
+remembered. Setting the environment variable `PLUMBLINE_RENDERER` to one of them does the same
+for every start; the command-line flag wins over it. If the app crashes inside the graphics
+driver, the log gets a `native crash` line naming the exception code, the driver file and the
+renderer.
 
 **Reporting a problem.** Send `plumbline.log` (and `plumbline.log.1` if it is there), with a
 sentence on what you did and what you saw. The log contains folder paths of this PC, which can

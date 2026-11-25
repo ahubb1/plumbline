@@ -9,7 +9,7 @@
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// The log is rotated when it reaches this size.
@@ -25,41 +25,105 @@ pub const EXIT_REPORTED: u8 = 3;
 /// Which graphics back end the window uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RendererChoice {
-    /// wgpu (Direct3D 12 or Vulkan), then OpenGL if wgpu cannot start.
+    /// wgpu on a Direct3D 12 GPU, then OpenGL, then the software renderer, each only if the
+    /// one before cannot start.
     #[default]
     Auto,
-    /// wgpu only.
+    /// wgpu on a Direct3D 12 GPU only.
     Wgpu,
     /// OpenGL (glow) only.
     Glow,
+    /// wgpu on Direct3D 12's software rasteriser (WARP, part of Windows) only: slow, but it
+    /// needs no working graphics driver.
+    Software,
 }
 
 impl RendererChoice {
-    /// Parses `wgpu` or `glow` (any case; `opengl` and `gl` also mean glow).
+    /// Parses `wgpu`, `glow` or `software` (any case; `opengl` and `gl` also mean glow,
+    /// `warp` and `cpu` also mean software).
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "wgpu" => Ok(RendererChoice::Wgpu),
             "glow" | "opengl" | "gl" => Ok(RendererChoice::Glow),
+            "software" | "warp" | "cpu" => Ok(RendererChoice::Software),
             "auto" => Ok(RendererChoice::Auto),
             other => Err(format!(
-                "unknown renderer \"{other}\" (use \"wgpu\" or \"glow\")"
+                "unknown renderer \"{other}\" (use \"wgpu\", \"glow\" or \"software\")"
             )),
         }
     }
+
+    /// How the log and messages name this renderer.
+    pub fn label(self) -> &'static str {
+        RENDERER_LABELS[self.index()]
+    }
+
+    fn index(self) -> usize {
+        match self {
+            RendererChoice::Auto => 0,
+            RendererChoice::Wgpu => 1,
+            RendererChoice::Glow => 2,
+            RendererChoice::Software => 3,
+        }
+    }
+
+    /// The renderers `shell::run` tries for this choice, in order, each only if the one
+    /// before returned an error.
+    pub fn attempts(self) -> &'static [RendererChoice] {
+        match self {
+            RendererChoice::Auto => &[
+                RendererChoice::Wgpu,
+                RendererChoice::Glow,
+                RendererChoice::Software,
+            ],
+            RendererChoice::Wgpu => &[RendererChoice::Wgpu],
+            RendererChoice::Glow => &[RendererChoice::Glow],
+            RendererChoice::Software => &[RendererChoice::Software],
+        }
+    }
+}
+
+const RENDERER_LABELS: [&str; 4] = [
+    "automatic",
+    "wgpu (Direct3D 12)",
+    "glow (OpenGL)",
+    "software (Direct3D 12 WARP)",
+];
+
+/// The renderer being started or running, for the native crash line: an index into
+/// [`RENDERER_LABELS`], with `u8::MAX` while none is.
+static RENDERER_IN_USE: AtomicU8 = AtomicU8::new(u8::MAX);
+
+/// Records which renderer is being started (`None`: none is).
+pub fn set_renderer_in_use(choice: Option<RendererChoice>) {
+    let index = choice.map_or(u8::MAX, |c| c.index() as u8);
+    RENDERER_IN_USE.store(index, Ordering::Relaxed);
+}
+
+/// The label of the renderer last passed to [`set_renderer_in_use`]. Lock- and allocation-free,
+/// so the native crash filter can call it.
+pub fn renderer_in_use() -> &'static str {
+    RENDERER_LABELS
+        .get(usize::from(RENDERER_IN_USE.load(Ordering::Relaxed)))
+        .copied()
+        .unwrap_or("none yet")
 }
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Launch {
     pub renderer: RendererChoice,
+    /// `--ready-file <path>` (hidden; the single-file launcher passes it): created once the
+    /// first frame has been painted, so the launcher knows this renderer works.
+    pub ready_file: Option<PathBuf>,
     /// PDF files to open.
     pub files: Vec<PathBuf>,
 }
 
 /// Reads the command line (without the program name) and the value of [`RENDERER_ENV`].
-/// `--renderer wgpu|glow` (or `--renderer=...`) wins over the environment variable; every
-/// other argument is a file to open, and everything after `--` is a file even if it looks like
-/// an option.
+/// `--renderer wgpu|glow|software` (or `--renderer=...`) wins over the environment variable;
+/// `--ready-file <path>` (or `--ready-file=<path>`) is for the launcher; every other argument
+/// is a file to open, and everything after `--` is a file even if it looks like an option.
 pub fn parse_args(
     args: impl IntoIterator<Item = OsString>,
     env_renderer: Option<OsString>,
@@ -79,7 +143,7 @@ pub fn parse_args(
         } else if text == "--renderer" {
             let value = args
                 .next()
-                .ok_or("--renderer needs a value (\"wgpu\" or \"glow\")")?;
+                .ok_or("--renderer needs a value (\"wgpu\", \"glow\" or \"software\")")?;
             launch.renderer = RendererChoice::parse(&value.to_string_lossy())
                 .map_err(|e| format!("--renderer: {e}"))?;
             flag_seen = true;
@@ -87,6 +151,11 @@ pub fn parse_args(
             launch.renderer =
                 RendererChoice::parse(value).map_err(|e| format!("--renderer: {e}"))?;
             flag_seen = true;
+        } else if text == "--ready-file" {
+            let value = args.next().ok_or("--ready-file needs a path")?;
+            launch.ready_file = Some(PathBuf::from(value));
+        } else if let Some(value) = text.strip_prefix("--ready-file=") {
+            launch.ready_file = Some(PathBuf::from(value));
         } else {
             launch.files.push(PathBuf::from(arg));
         }
@@ -135,6 +204,12 @@ pub fn rotate_if_full(path: &Path, limit: u64) -> std::io::Result<bool> {
 
 /// `YYYY-MM-DD hh:mm:ssZ` for seconds since 1970 (UTC).
 pub fn utc_timestamp(secs: u64) -> String {
+    let (year, month, day, h, m, s) = civil_time(secs);
+    format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02}Z")
+}
+
+/// Year, month, day, hour, minute and second (UTC) of seconds since 1970. No allocation.
+fn civil_time(secs: u64) -> (i64, i64, i64, u64, u64, u64) {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     // Civil-from-days (Howard Hinnant's algorithm).
@@ -147,12 +222,147 @@ pub fn utc_timestamp(secs: u64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}Z",
-        rem / 3600,
-        rem / 60 % 60,
-        rem % 60
-    )
+    (year, month, day, rem / 3600, rem / 60 % 60, rem % 60)
+}
+
+/// A `fmt::Write` into a fixed buffer that drops what does not fit (no allocation).
+struct StackWriter<'a> {
+    buf: &'a mut [u8],
+    len: usize,
+}
+
+impl core::fmt::Write for StackWriter<'_> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let room = self.buf.len() - self.len;
+        let mut take = s.len().min(room);
+        // Never cut a character in half.
+        while !s.is_char_boundary(take) {
+            take -= 1;
+        }
+        self.buf[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+        self.len += take;
+        Ok(())
+    }
+}
+
+/// A short name for common Windows exception codes.
+fn exception_name(code: u32) -> &'static str {
+    match code {
+        0xC000_0005 => "access violation",
+        0xC000_001D => "illegal instruction",
+        0xC000_0094 => "integer divide by zero",
+        0xC000_00FD => "stack overflow",
+        0xC000_0374 => "heap corruption",
+        0xC000_0409 => "stack buffer overrun",
+        0x8000_0003 => "breakpoint",
+        0xE06D_7363 => "C++ exception",
+        _ => "exception",
+    }
+}
+
+/// Formats the log line for a native crash (an unhandled exception, typically inside a graphics
+/// driver) into `out` and returns its length. `module` is the full path of the faulting module
+/// as UTF-16 with the faulting address's offset in it; only its file name is written, so the
+/// line holds no user folder. Uses no heap and no locks: it runs inside the unhandled-exception
+/// filter. A line that does not fit is cut short but always ends in a newline.
+pub fn format_crash_line(
+    out: &mut [u8],
+    secs: u64,
+    pid: u32,
+    code: u32,
+    address: usize,
+    module: Option<(&[u16], usize)>,
+    renderer: &str,
+) -> usize {
+    use core::fmt::Write as _;
+    let Some(last) = out.len().checked_sub(1) else {
+        return 0;
+    };
+    let mut w = StackWriter {
+        buf: &mut out[..last],
+        len: 0,
+    };
+    let (year, month, day, h, m, s) = civil_time(secs);
+    let _ = write!(
+        w,
+        "{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02}Z app[{pid}] native crash: {} \
+         {code:#010x} at {address:#x} in ",
+        exception_name(code)
+    );
+    match module {
+        Some((path, offset)) => {
+            let start = path
+                .iter()
+                .rposition(|&c| c == u16::from(b'\\') || c == u16::from(b'/'))
+                .map_or(0, |i| i + 1);
+            for c in char::decode_utf16(path[start..].iter().copied()) {
+                let _ = w.write_char(c.unwrap_or(char::REPLACEMENT_CHARACTER));
+            }
+            let _ = write!(w, "+{offset:#x}");
+        }
+        None => {
+            let _ = w.write_str("an unknown module");
+        }
+    }
+    let _ = write!(w, "; renderer: {renderer}");
+    let len = w.len;
+    out[len] = b'\n';
+    len + 1
+}
+
+/// Set once the first frame has been painted (see [`ReadySignal`]).
+static READY: AtomicBool = AtomicBool::new(false);
+
+/// Whether this run has painted its first frame. After that a failure is no longer a failed
+/// start, and the launcher has already gone.
+pub fn ready_reached() -> bool {
+    READY.load(Ordering::Relaxed)
+}
+
+/// Tells the launcher, once, that the window has painted its first frame: creates the
+/// `--ready-file` (holding the renderer's name) and logs it.
+#[derive(Debug, Default)]
+pub struct ReadySignal {
+    path: Option<PathBuf>,
+    done: bool,
+}
+
+impl ReadySignal {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        ReadySignal { path, done: false }
+    }
+
+    /// Whether [`ReadySignal::signal`] has been called.
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    /// Marks the run as ready. Only the first call does anything; it returns whether it wrote
+    /// the ready file.
+    pub fn signal(&mut self, renderer: &str) -> bool {
+        if std::mem::replace(&mut self.done, true) {
+            return false;
+        }
+        READY.store(true, Ordering::Relaxed);
+        let Some(path) = &self.path else {
+            log(&format!("first frame painted ({renderer})"));
+            return false;
+        };
+        match std::fs::write(path, renderer) {
+            Ok(()) => {
+                log(&format!(
+                    "first frame painted ({renderer}); ready file written"
+                ));
+                true
+            }
+            Err(e) => {
+                log(&format!(
+                    "first frame painted ({renderer}); the ready file could not be written: {e}"
+                ));
+                false
+            }
+        }
+    }
 }
 
 /// An append-only log file that rotates itself at [`LOG_LIMIT`].
@@ -409,6 +619,135 @@ mod tests {
         let launch = parse_args(os(&["--renderer=wgpu", "a.pdf"]), Some("dx9".into())).unwrap();
         assert_eq!(launch.renderer, RendererChoice::Wgpu);
         assert_eq!(launch.files, [PathBuf::from("a.pdf")]);
+    }
+
+    #[test]
+    fn software_renderer_in_every_spelling() {
+        for spelling in ["software", "SOFTWARE", " warp ", "cpu"] {
+            let launch = parse_args(os(&["--renderer", spelling]), None).unwrap();
+            assert_eq!(launch.renderer, RendererChoice::Software, "{spelling}");
+        }
+        let launch = parse_args(os(&["--renderer=software", "a.pdf"]), None).unwrap();
+        assert_eq!(launch.renderer, RendererChoice::Software);
+        assert_eq!(launch.files, [PathBuf::from("a.pdf")]);
+        let launch = parse_args(os(&[]), Some("Software".into())).unwrap();
+        assert_eq!(launch.renderer, RendererChoice::Software);
+        let err = parse_args(os(&["--renderer", "dx11"]), None).unwrap_err();
+        assert!(err.contains("software"), "{err}");
+    }
+
+    #[test]
+    fn automatic_order_is_wgpu_then_glow_then_software() {
+        assert_eq!(
+            RendererChoice::Auto.attempts(),
+            [
+                RendererChoice::Wgpu,
+                RendererChoice::Glow,
+                RendererChoice::Software
+            ]
+        );
+        for one in [
+            RendererChoice::Wgpu,
+            RendererChoice::Glow,
+            RendererChoice::Software,
+        ] {
+            assert_eq!(one.attempts(), [one]);
+        }
+    }
+
+    #[test]
+    fn ready_file_flag_in_both_spellings() {
+        let launch = parse_args(
+            os(&[
+                "--ready-file",
+                "C:\\t\\r.tmp",
+                "--renderer",
+                "glow",
+                "a.pdf",
+            ]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.ready_file, Some(PathBuf::from("C:\\t\\r.tmp")));
+        assert_eq!(launch.renderer, RendererChoice::Glow);
+        assert_eq!(launch.files, [PathBuf::from("a.pdf")]);
+        let launch = parse_args(os(&["--ready-file=r.tmp"]), None).unwrap();
+        assert_eq!(launch.ready_file, Some(PathBuf::from("r.tmp")));
+        assert!(launch.files.is_empty());
+        let err = parse_args(os(&["--ready-file"]), None).unwrap_err();
+        assert!(err.contains("needs a path"), "{err}");
+        assert_eq!(parse_args(os(&["a.pdf"]), None).unwrap().ready_file, None);
+    }
+
+    #[test]
+    fn ready_file_is_written_only_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ready.tmp");
+        let mut signal = ReadySignal::new(Some(path.clone()));
+        assert!(signal.signal("wgpu"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "wgpu");
+        assert!(ready_reached());
+        // The launcher removes it; later frames must not create it again.
+        std::fs::remove_file(&path).unwrap();
+        assert!(!signal.signal("wgpu"));
+        assert!(!signal.signal("wgpu"));
+        assert!(!path.exists());
+        // Without a path (a direct start) nothing is written.
+        assert!(!ReadySignal::new(None).signal("glow"));
+    }
+
+    #[test]
+    fn crash_line_names_code_address_module_and_renderer() {
+        let mut buf = [0u8; 512];
+        let module: Vec<u16> = "C:\\Windows\\System32\\DriverStore\\igd12umd64.dll"
+            .encode_utf16()
+            .collect();
+        let n = format_crash_line(
+            &mut buf,
+            1_795_000_000,
+            42,
+            0xC000_0005,
+            0x7ffa_1234_5678,
+            Some((&module, 0x1234)),
+            RendererChoice::Wgpu.label(),
+        );
+        let line = std::str::from_utf8(&buf[..n]).unwrap();
+        assert_eq!(
+            line,
+            "2026-11-18 11:06:40Z app[42] native crash: access violation 0xc0000005 at \
+             0x7ffa12345678 in igd12umd64.dll+0x1234; renderer: wgpu (Direct3D 12)\n"
+        );
+
+        let n = format_crash_line(&mut buf, 0, 1, 0x1234, 0, None, renderer_in_use());
+        let line = std::str::from_utf8(&buf[..n]).unwrap();
+        assert!(
+            line.contains("exception 0x00001234 at 0x0 in an unknown module"),
+            "{line}"
+        );
+        assert!(line.ends_with('\n'));
+    }
+
+    #[test]
+    fn crash_line_is_cut_to_the_buffer_and_still_ends_in_a_newline() {
+        let mut small = [0u8; 40];
+        let n = format_crash_line(&mut small, 0, 1, 0xC000_0005, 1, None, "glow (OpenGL)");
+        assert_eq!(n, 40);
+        assert_eq!(small[39], b'\n');
+        assert!(std::str::from_utf8(&small[..n]).is_ok());
+        assert_eq!(format_crash_line(&mut [], 0, 1, 0, 0, None, "x"), 0);
+        // A multi-byte character at the cut is dropped whole.
+        let module: Vec<u16> = "é".repeat(40).encode_utf16().collect();
+        let mut buf = [0u8; 100];
+        let n = format_crash_line(&mut buf, 0, 1, 0, 0, Some((&module, 0)), "x");
+        assert!(std::str::from_utf8(&buf[..n]).is_ok());
+    }
+
+    #[test]
+    fn renderer_in_use_labels() {
+        set_renderer_in_use(Some(RendererChoice::Software));
+        assert_eq!(renderer_in_use(), "software (Direct3D 12 WARP)");
+        set_renderer_in_use(None);
+        assert_eq!(renderer_in_use(), "none yet");
     }
 
     #[test]
