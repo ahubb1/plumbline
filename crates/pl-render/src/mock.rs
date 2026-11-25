@@ -141,7 +141,7 @@ impl MockBackend {
         self.lock().log.clone()
     }
 
-    /// The render requests (tile, page, thumbnail) executed so far, in order. A request that is
+    /// The render requests (tile, page, thumbnail, print window) executed so far, in order. A request that is
     /// blocked by [`pause`](MockBackend::pause) is listed only once it has actually rendered.
     pub fn rendered(&self) -> Vec<Request> {
         self.lock()
@@ -150,7 +150,10 @@ impl MockBackend {
             .filter(|r| {
                 matches!(
                     r,
-                    Request::RenderTile(_) | Request::RenderPage { .. } | Request::Thumbnail { .. }
+                    Request::RenderTile(_)
+                        | Request::RenderPage { .. }
+                        | Request::Thumbnail { .. }
+                        | Request::RenderWindow(_)
                 )
             })
             .cloned()
@@ -258,6 +261,20 @@ impl RenderBackend for MockBackend {
                 check_bitmap_size(w, h)?;
                 self.begin_render(&request)?;
                 return Ok(Reply::Bitmap(Self::fill(*page, 0, 0, w, h)));
+            }
+            Request::RenderWindow(w) => {
+                Self::page_info(&self.lock(), w.doc, w.page)?;
+                w.validate()?;
+                self.begin_render(&request)?;
+                // The same pure function of the position in the whole page image as a tile, so
+                // windows stitch exactly; the extra rotation and the options are not drawn.
+                let [x, y, width, height] = w.window;
+                let bitmap = Self::fill(w.page, x, y, width, height);
+                let scratch_bytes = bitmap.byte_len() as u64;
+                return Ok(Reply::Window(WindowReply {
+                    bitmap,
+                    scratch_bytes,
+                }));
             }
             _ => {}
         }
@@ -432,7 +449,10 @@ impl RenderBackend for MockBackend {
                 d.rects.insert((page, index), rect);
                 Ok(Reply::Done)
             }
-            Request::RenderTile(_) | Request::RenderPage { .. } | Request::Thumbnail { .. } => {
+            Request::RenderTile(_)
+            | Request::RenderPage { .. }
+            | Request::Thumbnail { .. }
+            | Request::RenderWindow(_) => {
                 unreachable!("handled above")
             }
         }

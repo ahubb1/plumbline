@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
 use pdfium_render::prelude::*;
+use pl_geom::Rotation;
 
 use crate::backend::RenderBackend;
 use crate::text::search_page_text;
@@ -48,6 +49,15 @@ pub const PAGE_HANDLE_LRU: usize = 8;
 /// small text (about 50 px and below; larger text is drawn as paths, which are not affected),
 /// so a gutter of 128 px keeps every such glyph that reaches into the tile whole.
 pub const TILE_GUTTER: u32 = 128;
+
+/// Pixels rendered to the right of and below a print window and then thrown away.
+///
+/// PDFium 8125 anti-aliases the last row (and column) of a destination bitmap differently
+/// when the page continues past it: on the real sample, banded output differed from a direct
+/// render by up to 14 grey levels, almost all of it in the bottom row of each band. Rendering
+/// a few rows more and dropping them makes every row an interior one. Tiles do not use this
+/// (their accepted stitching tolerance predates it).
+pub const WINDOW_TRAILING_GUTTER: u32 = 8;
 
 const DLL_NAME: &str = "pdfium.dll";
 
@@ -439,6 +449,122 @@ fn backend_err(e: PdfiumError) -> RenderError {
     RenderError::Backend(format!("{e:?}"))
 }
 
+fn pdfium_rotation(rotation: Rotation) -> PdfPageRenderRotation {
+    match rotation {
+        Rotation::R0 => PdfPageRenderRotation::None,
+        Rotation::R90 => PdfPageRenderRotation::Degrees90,
+        Rotation::R180 => PdfPageRenderRotation::Degrees180,
+        Rotation::R270 => PdfPageRenderRotation::Degrees270,
+    }
+}
+
+/// One annotation flag changed for a single render, and the value to put back.
+#[derive(Clone, Copy, Debug)]
+enum FlagChange {
+    /// `Hidden` was set on an annotation that did not have it.
+    Hid(usize),
+    /// `NoView` was cleared on a printable annotation that had it.
+    ShowedNoView(usize),
+}
+
+/// Sets the annotation flags `options` calls for: widgets hidden when form fields are left
+/// out; with the print rules, annotations without `Print` hidden and `NoView` cleared on
+/// printable ones. Annotations already hidden (by the file, or by the application because it
+/// draws them itself) are never touched. Returns what was changed, for [`restore_flags`].
+fn set_print_flags(
+    handle: &PdfPage<'_>,
+    options: WindowOptions,
+) -> Result<Vec<FlagChange>, RenderError> {
+    if options.form_fields && !options.print_flags {
+        return Ok(Vec::new());
+    }
+    let annotations = handle.annotations();
+    let mut plan = Vec::new();
+    for (index, a) in annotations.iter().enumerate() {
+        if a.is_hidden() {
+            continue;
+        }
+        let widget = matches!(
+            a.annotation_type(),
+            PdfPageAnnotationType::Widget | PdfPageAnnotationType::XfaWidget
+        );
+        if (widget && !options.form_fields) || (options.print_flags && !a.is_printed()) {
+            plan.push(FlagChange::Hid(index));
+        } else if options.print_flags && a.is_printable_but_not_viewable() {
+            plan.push(FlagChange::ShowedNoView(index));
+        }
+    }
+    let mut done = Vec::with_capacity(plan.len());
+    for change in plan {
+        let result = match change {
+            FlagChange::Hid(i) => annotations.get(i).and_then(|mut a| a.set_is_hidden(true)),
+            FlagChange::ShowedNoView(i) => annotations
+                .get(i)
+                .and_then(|mut a| a.set_is_printable_but_not_viewable(false)),
+        };
+        if let Err(e) = result {
+            // Leave the document as it was before failing.
+            let _ = restore_flags(handle, &done);
+            return Err(backend_err(e));
+        }
+        done.push(change);
+    }
+    Ok(done)
+}
+
+/// Undoes [`set_print_flags`]. Every change is attempted; the first failure is reported.
+fn restore_flags(handle: &PdfPage<'_>, changes: &[FlagChange]) -> Result<(), RenderError> {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let annotations = handle.annotations();
+    let mut first_error = None;
+    for change in changes {
+        let result = match *change {
+            FlagChange::Hid(i) => annotations.get(i).and_then(|mut a| a.set_is_hidden(false)),
+            FlagChange::ShowedNoView(i) => annotations
+                .get(i)
+                .and_then(|mut a| a.set_is_printable_but_not_viewable(true)),
+        };
+        if let Err(e) = result {
+            first_error.get_or_insert(backend_err(e));
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+/// Renders the page at `full` pixels with `rotation` more than `/Rotate` into a fresh
+/// `padded` bitmap whose top-left is `origin - pad` of the page image.
+fn render_padded<'a>(
+    handle: &PdfPage<'a>,
+    full: (u32, u32),
+    origin: (u32, u32),
+    pad: (u32, u32),
+    padded: (u32, u32),
+    rotation: Rotation,
+    options: WindowOptions,
+) -> Result<PdfBitmap<'a>, RenderError> {
+    let config = PdfRenderConfig::new()
+        .set_fixed_size(full.0 as Pixels, full.1 as Pixels)
+        .set_origin(
+            -((origin.0 - pad.0) as Pixels),
+            -((origin.1 - pad.1) as Pixels),
+        )
+        .rotate(pdfium_rotation(rotation), false)
+        .render_annotations(options.annotations)
+        .render_form_data(true);
+    let mut bitmap = PdfBitmap::empty(
+        padded.0 as Pixels,
+        padded.1 as Pixels,
+        PdfBitmapFormat::BGRx,
+    )
+    .map_err(backend_err)?;
+    handle
+        .render_into_bitmap_with_config(&mut bitmap, &config)
+        .map_err(backend_err)?;
+    Ok(bitmap)
+}
+
 fn rect_array(r: PdfRect) -> RectArray {
     [
         r.left().value as f64,
@@ -516,6 +642,24 @@ impl<'p> State<'p> {
                 let full = page_pixel_size(&geometry, scale);
                 self.render(doc, page, full, (0, 0), full, options)
                     .map(Reply::Bitmap)
+            }
+            Request::RenderWindow(w) => {
+                let rotation = w.validate()?;
+                let [x, y, width, height] = w.window;
+                let (bitmap, scratch_bytes) = self.render_rotated(
+                    w.doc,
+                    w.page,
+                    (w.size[0], w.size[1]),
+                    (x, y),
+                    (width, height),
+                    rotation,
+                    w.options,
+                    WINDOW_TRAILING_GUTTER,
+                )?;
+                Ok(Reply::Window(WindowReply {
+                    bitmap,
+                    scratch_bytes,
+                }))
             }
             Request::Thumbnail { doc, page, max_px } => {
                 let geometry = self.page_info(doc, page)?.geometry();
@@ -750,36 +894,55 @@ impl<'p> State<'p> {
         size: (u32, u32),
         options: RenderOptions,
     ) -> Result<Bitmap, RenderError> {
+        let options = WindowOptions {
+            annotations: options.annotations,
+            form_fields: true,
+            print_flags: false,
+        };
+        self.render_rotated(doc, page, full, origin, size, Rotation::R0, options, 0)
+            .map(|(bitmap, _)| bitmap)
+    }
+
+    /// [`render`](Self::render) with an extra clockwise `rotation` on top of `/Rotate` and the
+    /// print options. Returns the bitmap and the peak pixel memory used, in bytes.
+    ///
+    /// Annotation flags the options call for (widgets left out, the print rules) are set in the
+    /// in-memory document for this one render and put back afterwards, whether the render
+    /// succeeded or not.
+    #[allow(clippy::too_many_arguments)]
+    fn render_rotated(
+        &mut self,
+        doc: DocId,
+        page: u32,
+        full: (u32, u32),
+        origin: (u32, u32),
+        size: (u32, u32),
+        rotation: Rotation,
+        options: WindowOptions,
+        trailing: u32,
+    ) -> Result<(Bitmap, u64), RenderError> {
         check_bitmap_size(size.0, size.1)?;
-        let limit = i32::MAX as u32 / 2;
-        if full.0 > limit || full.1 > limit {
+        if full.0 > MAX_IMAGE_SIDE || full.1 > MAX_IMAGE_SIDE {
             return Err(RenderError::TooLarge {
                 width: full.0 as u64,
                 height: full.1 as u64,
             });
         }
         // Render a gutter to the left of and above the window, then crop it away (see
-        // `TILE_GUTTER`). Windows that start at the page edge need none.
+        // `TILE_GUTTER`). Windows that start at the page edge need none. Print windows also
+        // get `trailing` pixels to the right and below (see `WINDOW_TRAILING_GUTTER`).
         let pad = (TILE_GUTTER.min(origin.0), TILE_GUTTER.min(origin.1));
-        let padded = (size.0 + pad.0, size.1 + pad.1);
+        let after = (
+            trailing.min(full.0.saturating_sub(origin.0 + size.0)),
+            trailing.min(full.1.saturating_sub(origin.1 + size.1)),
+        );
+        let padded = (size.0 + pad.0 + after.0, size.1 + pad.1 + after.1);
         let handle = self.render_page(doc, page)?;
-        let config = PdfRenderConfig::new()
-            .set_fixed_size(full.0 as Pixels, full.1 as Pixels)
-            .set_origin(
-                -((origin.0 - pad.0) as Pixels),
-                -((origin.1 - pad.1) as Pixels),
-            )
-            .render_annotations(options.annotations)
-            .render_form_data(true);
-        let mut bitmap = PdfBitmap::empty(
-            padded.0 as Pixels,
-            padded.1 as Pixels,
-            PdfBitmapFormat::BGRx,
-        )
-        .map_err(backend_err)?;
-        handle
-            .render_into_bitmap_with_config(&mut bitmap, &config)
-            .map_err(backend_err)?;
+        let changed = set_print_flags(handle, options)?;
+        let rendered = render_padded(handle, full, origin, pad, padded, rotation, options);
+        let restored = restore_flags(handle, &changed);
+        let bitmap = rendered?;
+        restored?;
 
         // The render flags ask PDFium for RGB byte order, so the raw buffer is already RGBx.
         // Copy out the window, dropping the gutter and any row padding, and make it opaque.
@@ -792,18 +955,23 @@ impl<'p> State<'p> {
         }
         let row_bytes = size.0 as usize * 4;
         let mut pixels = Vec::with_capacity(row_bytes * size.1 as usize);
-        for y in pad.1 as usize..padded.1 as usize {
+        for y in pad.1 as usize..(pad.1 + size.1) as usize {
             let start = y * stride + pad.0 as usize * 4;
             pixels.extend_from_slice(&raw[start..start + row_bytes]);
         }
         for px in pixels.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
-        Ok(Bitmap {
-            width: size.0,
-            height: size.1,
-            pixels,
-        })
+        // Both buffers are alive here: this is the peak.
+        let scratch = raw.len() as u64 + pixels.len() as u64;
+        Ok((
+            Bitmap {
+                width: size.0,
+                height: size.1,
+                pixels,
+            },
+            scratch,
+        ))
     }
 
     fn page_text(&mut self, doc: DocId, page: u32) -> Result<PageText, RenderError> {

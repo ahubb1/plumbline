@@ -396,7 +396,12 @@ impl AnnotSet {
 
     /// Records a status of any model for `id` ([`Annotation::status_reply`]), later than
     /// every status it has, and returns the new status annotation's id.
-    pub fn set_status(&mut self, id: &AnnotId, status: &Status, origin: &Origin) -> Option<AnnotId> {
+    pub fn set_status(
+        &mut self,
+        id: &AnnotId,
+        status: &Status,
+        origin: &Origin,
+    ) -> Option<AnnotId> {
         let parent = self.get(id)?;
         let origin = &self.status_origin_any(id, origin);
         let a = Annotation::status_reply(parent, &status.model, &status.state, origin);

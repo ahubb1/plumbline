@@ -2,7 +2,8 @@
 
 /// Widths for character codes 32..=126.
 const HELVETICA_WIDTHS: [u16; 95] = [
-    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, // space .. /
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278,
+    278, // space .. /
     556, 556, 556, 556, 556, 556, 556, 556, 556, 556, // 0 .. 9
     278, 278, 584, 584, 584, 556, 1015, // : .. @
     667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667,
@@ -27,7 +28,10 @@ pub fn helvetica_width(text: &str, size: f64) -> f64 {
         .chars()
         .map(|c| {
             let code = c as u32;
-            assert!((32..=126).contains(&code), "non-ASCII character {c:?} in fixture text");
+            assert!(
+                (32..=126).contains(&code),
+                "non-ASCII character {c:?} in fixture text"
+            );
             u32::from(HELVETICA_WIDTHS[(code - 32) as usize])
         })
         .sum();

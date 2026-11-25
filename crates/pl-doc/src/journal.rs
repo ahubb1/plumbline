@@ -146,6 +146,12 @@ pub enum Record {
     /// A change made by undoing or redoing a command from before this journal began: it is
     /// replayed as given, without touching the history.
     Raw { command: Command },
+    /// A structural command (see [`crate::structure`]); `invalidate_signatures` says the user
+    /// had agreed that the save may invalidate digital signatures.
+    Structure {
+        command: crate::structure::StructCommand,
+        invalidate_signatures: bool,
+    },
 }
 
 /// What a journal file held.

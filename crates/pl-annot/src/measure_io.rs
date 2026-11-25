@@ -97,7 +97,10 @@ pub(crate) fn measure_dict(spec: &MeasureSpec) -> Dictionary {
 /// The `/V` a measure dictionary of a Volume of ours carries, so that Revu shows the volume
 /// as this crate does: [`VolumeFormat`] in the cube of the units of `/X`. `None` when the
 /// unit of `/X` is not one this crate knows.
-pub(crate) fn volume_formats(spec: &MeasureSpec, volume: &VolumeFormat) -> Option<Vec<NumberFormat>> {
+pub(crate) fn volume_formats(
+    spec: &MeasureSpec,
+    volume: &VolumeFormat,
+) -> Option<Vec<NumberFormat>> {
     let unit = spec.metres_per_unit()?;
     let factor = unit * unit * unit / volume.unit.cu_metres_per_unit();
     Some(vec![NumberFormat::decimal(
@@ -560,7 +563,9 @@ pub(crate) fn read_measurement(
                 // been seen): without one the depth is 0, as Revu's value says.
                 MeasureKind::Volume => m.depth = Some(0.0),
                 MeasureKind::Count => {
-                    m.symbol = match lookup(doc, dict, b"CountStyle").and_then(name_of).as_deref()
+                    m.symbol = match lookup(doc, dict, b"CountStyle")
+                        .and_then(name_of)
+                        .as_deref()
                     {
                         Some("Square") => CountSymbol::Square,
                         Some("Checkmark") => CountSymbol::Check,
@@ -618,7 +623,9 @@ pub(crate) fn bounds_of(points: &[Point]) -> pl_geom::Rect {
     let first = points.first().copied().unwrap_or(Point::ZERO);
     points
         .iter()
-        .fold(pl_geom::Rect::from_points(first, first), |r, p| r.union_pt(*p))
+        .fold(pl_geom::Rect::from_points(first, first), |r, p| {
+            r.union_pt(*p)
+        })
 }
 
 /// A point this crate wrote as two exact strings.

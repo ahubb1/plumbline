@@ -17,6 +17,20 @@ const FALLBACK_MEDIA_BOX: [f64; 4] = [0.0, 0.0, 612.0, 792.0];
 /// How far up the `/Parent` chain an inherited page attribute is looked for.
 const INHERIT_DEPTH_LIMIT: usize = 64;
 
+/// The page attributes a page can inherit from its `/Pages` ancestors (ISO 32000-1 7.7.3.4).
+pub(crate) const INHERITABLE_PAGE_KEYS: [&[u8]; 4] =
+    [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+
+/// [`FALLBACK_MEDIA_BOX`] as a PDF array.
+pub(crate) fn fallback_media_box() -> Object {
+    Object::Array(
+        FALLBACK_MEDIA_BOX
+            .iter()
+            .map(|v| Object::Integer(*v as i64))
+            .collect(),
+    )
+}
+
 /// The cross-reference style of the file's newest revision. An incremental save appends a
 /// section of the same style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +126,14 @@ impl PdfDocument {
     /// Parse `bytes`. `password` is tried after the empty user password.
     pub fn from_bytes(bytes: Vec<u8>, password: Option<&str>) -> Result<PdfDocument> {
         let doc = parse(&bytes, password)?;
+        PdfDocument::from_parts(bytes, doc)
+    }
+
+    /// A document derived in memory from another one (a page operation, an outline rewrite, a
+    /// flatten). `bytes` stays the bytes of the file it derives from: a save of the derived
+    /// document is always a full rewrite, and an in-place one compares the file on disk with
+    /// these bytes before replacing it.
+    pub(crate) fn derived(bytes: Vec<u8>, doc: Document) -> Result<PdfDocument> {
         PdfDocument::from_parts(bytes, doc)
     }
 
@@ -453,6 +475,18 @@ impl PdfFile {
     /// always tried first.
     pub fn open_with_password(path: impl AsRef<Path>, password: &str) -> Result<PdfFile> {
         PdfFile::open_inner(path.as_ref(), Some(password.to_string()))
+    }
+
+    /// A handle for a file that does not exist yet, holding a document to be saved there.
+    pub(crate) fn detached(path: &Path, document: PdfDocument) -> PdfFile {
+        PdfFile {
+            path: path.to_path_buf(),
+            password: None,
+            loaded: Some(document),
+            stamp: None,
+            resume: None,
+            stats: None,
+        }
     }
 
     fn open_inner(path: &Path, password: Option<String>) -> Result<PdfFile> {

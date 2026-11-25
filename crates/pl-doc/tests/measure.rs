@@ -355,7 +355,14 @@ fn a_scale_change_recomputes_every_dependent_measurement_in_one_undo_step() {
     want.sort();
     assert_eq!(touched, want, "the plain line has no scale");
     assert_eq!(
-        doc.annotation(&count).unwrap().measurement().unwrap().spec.as_ref().unwrap().ratio,
+        doc.annotation(&count)
+            .unwrap()
+            .measurement()
+            .unwrap()
+            .spec
+            .as_ref()
+            .unwrap()
+            .ratio,
         "1 in = 40 ft"
     );
     assert!(close(length_m(doc, &len), 40.0 * FT));
@@ -778,7 +785,6 @@ fn measurement_edits_recompute_and_survive_a_save() {
         .unwrap();
     assert_eq!(doc.hidden_annotations().len(), 2);
 }
-
 
 fn settings() -> DocSettings {
     DocSettings {

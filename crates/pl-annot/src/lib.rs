@@ -105,8 +105,7 @@ pub use measure::{
 pub use measure_draw::Caption;
 pub use model::{
     AnnotId, AnnotKind, Annotation, Baseline, Flags, Geometry, LinkTarget, Member, Meta, Origin,
-    Style, COLUMN_DATA_KEY,
-    MODEL_KEY, PRIVATE_KEY,
+    Style, COLUMN_DATA_KEY, MODEL_KEY, PRIVATE_KEY,
 };
 pub use objects::{decode_text, encode_text, PdfDate};
 pub use review::{default_popup_rect, ReviewState, Status, StatusSet, REVIEW_MODEL};

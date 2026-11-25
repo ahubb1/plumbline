@@ -1346,7 +1346,11 @@ fn fixture_pages_round_trip_with_their_quantities() {
             .and_then(|m| m.outline())
             .unwrap();
         assert!(tol(outline, 160.0 * uu * FT), "{name}");
-        assert_eq!(cell(&table, &area, Builtin::Perimeter), Value::Empty, "{name}");
+        assert_eq!(
+            cell(&table, &area, Builtin::Perimeter),
+            Value::Empty,
+            "{name}"
+        );
         assert!(
             tol(f(&volume, Builtin::Volume), 1600.0 * uu * uu * 2.0 / 27.0),
             "{name}"

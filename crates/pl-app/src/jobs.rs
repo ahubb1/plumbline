@@ -198,6 +198,11 @@ impl AppState {
     /// (the pointer hovering over the page has usually started the read long before a click
     /// arrives). Called from outside a frame (a script, a test, the calls that answer at
     /// once) it waits for the worker instead.
+    /// Whether a read of a document's annotations is running on a worker thread.
+    pub(crate) fn annots_loading(&self, doc: DocumentId) -> bool {
+        self.jobs.loads.contains_key(&doc)
+    }
+
     pub(crate) fn ensure_annots(&mut self, doc: DocumentId) -> bool {
         let Ok(d) = self.session.document(doc) else {
             return false;
@@ -448,6 +453,9 @@ impl AppState {
                 if let (Some(recent), Some(path)) = (&mut self.recent, &path) {
                     recent.touch(path);
                     let _ = recent.save();
+                }
+                if let Some(path) = &path {
+                    self.set_file_saved(path);
                 }
                 self.chrome.status = Some(if saved.wrote() {
                     format!("Saved {}", display_name(&saved.path))

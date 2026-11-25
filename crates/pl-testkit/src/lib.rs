@@ -21,10 +21,12 @@ mod build;
 mod fixtures;
 mod metrics;
 mod raw;
+mod structure;
 
 pub use fixtures::*;
-pub use raw::{linearized, write_scan_set, write_scan_set_with_unit, ScanSet};
 pub use metrics::{helvetica_width, HELVETICA_ASCENT, HELVETICA_DESCENT};
+pub use raw::{linearized, write_scan_set, write_scan_set_with_unit, ScanSet};
+pub use structure::*;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -84,7 +86,12 @@ pub struct TextTruth {
 
 impl TextTruth {
     pub fn new(text: &str, origin: Point, font_size: f64) -> Self {
-        Self { text: text.to_string(), origin, font_size, width: helvetica_width(text, font_size) }
+        Self {
+            text: text.to_string(),
+            origin,
+            font_size,
+            width: helvetica_width(text, font_size),
+        }
     }
 
     /// Box from descender to ascender over the advance width (AFM metrics; a
@@ -146,7 +153,11 @@ pub struct ImageTruth {
 impl ImageTruth {
     /// Gray value of pixel (`x`, `y`), origin top-left. This is the generator's own formula.
     pub fn pixel(&self, x: u32, y: u32) -> u8 {
-        if self.dark_rects_px.iter().any(|r| x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) {
+        if self
+            .dark_rects_px
+            .iter()
+            .any(|r| x >= r[0] && x < r[2] && y >= r[1] && y < r[3])
+        {
             self.dark_level
         } else {
             self.background_levels[(((x / self.checker_px) + (y / self.checker_px)) & 1) as usize]
@@ -421,7 +432,11 @@ impl Default for Options {
 impl Options {
     /// Light settings for quick tests: 2,000 segments in 3 streams, 255 x 330 px image.
     pub fn small() -> Self {
-        Self { dense_segments: 2_000, dense_streams: 3, raster_px: [255, 330] }
+        Self {
+            dense_segments: 2_000,
+            dense_streams: 3,
+            raster_px: [255, 330],
+        }
     }
 }
 
@@ -456,7 +471,11 @@ pub fn all_fixtures_with(options: &Options) -> Vec<Fixture> {
 
 /// `<workspace>/target/fixtures`, the conventional place for generated fixtures.
 pub fn default_output_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("target").join("fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("fixtures")
 }
 
 /// Write every fixture as `<name>.pdf` plus `<name>.manifest.txt` (a debug

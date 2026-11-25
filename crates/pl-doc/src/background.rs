@@ -43,7 +43,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pl_annot::{AnnotSet, SavePlan};
-use pl_pdf::{EditSet, Expected, LayerInfo, ObjectId, PdfDocument, PdfFile, SaveOptions};
+use pl_pdf::{
+    EditSet, Expected, LayerInfo, ObjectId, PdfDocument, PdfFile, SaveOptions, SignaturePolicy,
+};
 use pl_render::{DocId, RectArray, RenderBackend};
 use pl_scene::SceneWorker;
 
@@ -187,6 +189,11 @@ pub(crate) struct SaveJob {
     pub user_units: Vec<f64>,
     /// Fetch every page's real geometry for the new display ([`crate::OpenMode::Complete`]).
     pub complete: bool,
+    /// The working copy of structural edits and whether the user agreed to invalidate
+    /// signatures: the save is then the full rewrite of it (see [`crate::structure`]).
+    pub working: Option<(PdfDocument, bool)>,
+    /// `working` was given: the display shows the working copy's bytes, not the file.
+    pub restructured: bool,
 }
 
 /// What became of the page display.
@@ -205,6 +212,13 @@ pub(crate) enum StoreAfter {
     Unchanged,
     /// The copy, rebased on the file that was written.
     Rebased {
+        set: AnnotSet,
+        scales: Box<ScaleStore>,
+        page_count: usize,
+    },
+    /// A structural save: the store read afresh from the file that was written, with a new
+    /// history (structural edits are undoable until saved).
+    Reloaded {
         set: AnnotSet,
         scales: Box<ScaleStore>,
         page_count: usize,
@@ -238,9 +252,15 @@ pub(crate) struct SaveDone {
 }
 
 enum Mode<'a> {
-    Incremental,
-    Full,
-    IncrementalAs(&'a Path),
+    Incremental(&'a EditSet),
+    Full(&'a EditSet),
+    IncrementalAs(&'a Path, &'a EditSet),
+    /// The full rewrite of a restructured document over the file.
+    Restructured(PdfDocument, SignaturePolicy),
+    /// The same to another file; the handle's file is left as it is.
+    RestructuredAs(PathBuf, PdfDocument, SignaturePolicy),
+    /// A document with no file of its own (opened from memory) written to a new one.
+    New(PathBuf, PdfDocument, SignaturePolicy),
 }
 
 struct Progress {
@@ -283,17 +303,14 @@ fn copy_to(source: &Path, dest: &Path) -> Result<()> {
 fn write_checked(
     job: &mut SaveJob,
     progress: &mut Progress,
-    pdf: &mut PdfFile,
+    pdf: Option<&mut PdfFile>,
     mode: Mode<'_>,
-    edits: &EditSet,
-    also_touched: &[u32],
+    touched: &[u32],
 ) -> Result<SaveOutcome> {
     let page_count = job.page_count;
-    let mut touched: Vec<u32> = edits
-        .annotation_pages()
-        .into_iter()
-        .map(|p| p as u32)
-        .chain(also_touched.iter().copied())
+    let mut touched: Vec<u32> = touched
+        .iter()
+        .copied()
         .filter(|p| *p < page_count)
         .collect();
     touched.sort_unstable();
@@ -315,19 +332,27 @@ fn write_checked(
     count_pages.sort_unstable();
     count_pages.dedup();
 
-    if !matches!(mode, Mode::IncrementalAs(_)) {
+    if matches!(
+        mode,
+        Mode::Incremental(_) | Mode::Full(_) | Mode::Restructured(..)
+    ) {
         // The file is about to be replaced: nothing of this document may still map it.
         let deadline = Instant::now() + job.release_wait;
         while job.users.count() > 0 {
             if Instant::now() >= deadline {
                 return Err(DocError::FileBusy {
-                    path: pdf.path().to_path_buf(),
+                    path: pdf
+                        .as_ref()
+                        .map(|p| p.path().to_path_buf())
+                        .unwrap_or_default(),
                     workers: job.users.count(),
                 });
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        if progress.mirror_open {
+        // A restructured document's display shows its bytes in memory, not the file: it
+        // stays open (and is still right if the save fails).
+        if progress.mirror_open && !matches!(mode, Mode::Restructured(..)) {
             backend.close(job.render)?;
             progress.mirror_open = false;
         }
@@ -343,13 +368,30 @@ fn write_checked(
             &before,
         )
     };
-    let report = match mode {
-        Mode::Incremental => pdf.save_incremental_checked(edits, &job.options, &mut check)?,
-        Mode::Full => pdf.save_full_checked(edits, &job.options, &mut check)?,
-        Mode::IncrementalAs(dest) => {
-            pdf.save_incremental_as_checked(dest, edits, &job.options, &mut check)?
-        }
-    };
+    let report =
+        match mode {
+            Mode::Incremental(edits) => pdf.ok_or(DocError::NoFile)?.save_incremental_checked(
+                edits,
+                &job.options,
+                &mut check,
+            )?,
+            Mode::Full(edits) => {
+                pdf.ok_or(DocError::NoFile)?
+                    .save_full_checked(edits, &job.options, &mut check)?
+            }
+            Mode::IncrementalAs(dest, edits) => pdf
+                .ok_or(DocError::NoFile)?
+                .save_incremental_as_checked(dest, edits, &job.options, &mut check)?,
+            Mode::Restructured(doc, policy) => pdf
+                .ok_or(DocError::NoFile)?
+                .save_restructured_checked(doc, &job.options, policy, &mut check)?,
+            Mode::RestructuredAs(dest, doc, policy) => pdf
+                .ok_or(DocError::NoFile)?
+                .save_restructured_as_checked(&dest, doc, &job.options, policy, &mut check)?,
+            Mode::New(dest, doc, policy) => {
+                doc.save_new_checked(&dest, &job.options, policy, &mut check)?
+            }
+        };
     Ok(SaveOutcome {
         report,
         pdfium: PdfiumCheck {
@@ -418,11 +460,17 @@ fn plan_and_write(
             }
         };
     let mode = match target {
-        SaveTarget::InPlace => Mode::Incremental,
-        SaveTarget::Optimised => Mode::Full,
-        SaveTarget::As(dest) => Mode::IncrementalAs(dest),
+        SaveTarget::InPlace => Mode::Incremental(&edits),
+        SaveTarget::Optimised => Mode::Full(&edits),
+        SaveTarget::As(dest) => Mode::IncrementalAs(dest, &edits),
     };
-    let outcome = write_checked(job, progress, pdf, mode, &edits, &touched)?;
+    let touched: Vec<u32> = edits
+        .annotation_pages()
+        .into_iter()
+        .map(|p| p as u32)
+        .chain(touched)
+        .collect();
+    let outcome = write_checked(job, progress, Some(pdf), mode, &touched)?;
     if let SaveTarget::As(dest) = target {
         progress.moved_to = Some(dest.clone());
     }
@@ -432,7 +480,71 @@ fn plan_and_write(
     })
 }
 
+/// The save of a working copy of structural edits: the store's changes applied to it in
+/// memory, then the verified full rewrite (see [`crate::structure`]).
+fn save_working(job: &mut SaveJob, progress: &mut Progress) -> Result<Written> {
+    let (doc, accepted) = job.working.take().ok_or(DocError::NoFile)?;
+    let policy = if accepted {
+        SignaturePolicy::Invalidate
+    } else {
+        SignaturePolicy::Refuse
+    };
+    let set = job.set.as_ref().ok_or(DocError::NoFile)?;
+    let mut plan = set.plan_save(&doc)?;
+    let scale_pages = match &job.scales {
+        Some(scales) => scales.plan(&doc, &mut plan.edits)?,
+        None => Vec::new(),
+    };
+    let counts = (plan.added.len(), plan.modified.len(), plan.deleted.len());
+    let mut touched: Vec<u32> = plan.touched_pages().iter().map(|p| *p as u32).collect();
+    touched.extend(plan.edits.annotation_pages().iter().map(|p| *p as u32));
+    touched.extend(job.hidden_pages.iter().copied());
+    touched.extend(scale_pages.iter().map(|p| *p as u32));
+    let doc = if plan.edits.is_empty() {
+        doc
+    } else {
+        doc.with_edits(&plan.edits)?
+    };
+    let (mode, dest) = match (&job.origin, job.target.clone()) {
+        (Origin::File(path), SaveTarget::InPlace | SaveTarget::Optimised) => {
+            // As for any save in place: not over a file another program changed since.
+            if let Some(then) = job.stamp {
+                let now = FileStamp::of_file(path).map_err(|e| DocError::io("read", path, e))?;
+                if (now.len, now.ends_hash) != (then.len, then.ends_hash) {
+                    return Err(pl_pdf::PdfError::ChangedOnDisk { path: path.clone() }.into());
+                }
+            }
+            (Mode::Restructured(doc, policy), None)
+        }
+        (Origin::File(_), SaveTarget::As(dest)) => {
+            (Mode::RestructuredAs(dest.clone(), doc, policy), Some(dest))
+        }
+        (Origin::Memory { .. }, SaveTarget::As(dest)) => {
+            (Mode::New(dest.clone(), doc, policy), Some(dest))
+        }
+        (Origin::Memory { .. }, _) => return Err(DocError::NoFile),
+    };
+    let mut pdf = match (&job.origin, job.pdf.take()) {
+        (Origin::File(_), Some(pdf)) => Some(pdf),
+        (Origin::File(path), None) => Some(open_pdf(path, job.password.as_deref())?),
+        (Origin::Memory { .. }, _) => None,
+    };
+    let outcome = write_checked(job, progress, pdf.as_mut(), mode, &touched);
+    job.pdf = pdf;
+    let outcome = outcome?;
+    if let Some(dest) = dest {
+        progress.moved_to = Some(dest);
+    }
+    Ok(Written {
+        outcome: Some(outcome),
+        counts,
+    })
+}
+
 fn save_steps(job: &mut SaveJob, progress: &mut Progress) -> Result<Written> {
+    if job.restructured {
+        return save_working(job, progress);
+    }
     let mut target = job.target.clone();
     if let Origin::Memory { bytes, .. } = &job.origin {
         // A document held in memory is written out as it is, then saved in place like any
@@ -503,6 +615,28 @@ pub(crate) fn run_save(mut job: SaveJob) -> SaveDone {
             .as_deref()
             .and_then(|p| FileStamp::of_file(p).ok());
         progress.stamp = Some(stamp);
+        if job.restructured {
+            // The pages may all be new: the store is read afresh from the file written.
+            job.set = None;
+            let parsed = match pdf.as_mut() {
+                Some(file) => file.document().map_err(DocError::from),
+                None => Err(DocError::NoFile),
+            };
+            store = match parsed {
+                Ok(doc) => StoreAfter::Reloaded {
+                    set: AnnotSet::load(doc),
+                    scales: Box::new(ScaleStore::load(doc)),
+                    page_count: doc.page_count(),
+                },
+                Err(e) => {
+                    warnings.push(format!(
+                        "the saved file could not be read back into the markup list ({e}); the \
+                         markups are read again from the file"
+                    ));
+                    StoreAfter::Stale
+                }
+            };
+        }
         if let Some(mut set) = job.set.take() {
             let parsed = match pdf.as_mut() {
                 Some(file) => file.document().map_err(DocError::from),
@@ -531,7 +665,10 @@ pub(crate) fn run_save(mut job: SaveJob) -> SaveDone {
     // The display: a new one when the old one was closed for the replace, or shows another
     // file than the document now is.
     let mut layers_reset = false;
-    let mirror = if progress.mirror_open && !moved_file {
+    // After a structural save the display, which showed the working copy's bytes, is opened
+    // on the file that now holds them.
+    let reopen_restructured = job.restructured && changed_file;
+    let mirror = if progress.mirror_open && !moved_file && !reopen_restructured {
         MirrorAfter::Kept
     } else if let Some(path) = &final_path {
         let tail = match &job.layers_off {
@@ -887,6 +1024,12 @@ impl Document {
             layers_off: self.layers_switched_off(),
             user_units: self.pages().iter().map(|p| p.user_unit()).collect(),
             complete: self.settles_at_open(),
+            working: self
+                .structure
+                .working
+                .as_ref()
+                .map(|w| (w.doc.clone(), w.accepted)),
+            restructured: self.structure.working.is_some(),
         })
     }
 
@@ -931,9 +1074,29 @@ impl Document {
                     state.clear_mirror_state();
                 }
             }
+            StoreAfter::Reloaded {
+                set,
+                scales,
+                page_count,
+            } => {
+                let old_total = self.edit_revision();
+                if let Some(state) = self.edit.state.as_mut() {
+                    let selection = state.editor.selection().to_vec();
+                    state.editor = crate::command::Editor::with_scales(set, *scales, page_count);
+                    state.editor.select(selection);
+                    state.clear_mirror_state();
+                }
+                self.rebase_edit_revision(old_total);
+            }
             StoreAfter::Stale => self.drop_store(),
         }
+        let moved = done.moved_to.is_some();
         let saved = done.result?;
+        if saved.outcome.is_some() || moved {
+            // The file is the truth now: the working copy is written and structural steps
+            // (whose snapshots are of the old file) are no longer undoable.
+            self.structure.clear_all();
+        }
         if let Some(state) = self.edit.state.as_mut() {
             state.settle_saved();
         }
@@ -1110,6 +1273,12 @@ impl Document {
             serial,
         };
         let (tx, rx) = channel();
+        if !annots && self.cached_layers().is_none() {
+            // The layers of a working copy are at hand (and the file's would be wrong).
+            if let Some(layers) = self.structure.working.as_ref().map(|w| w.doc.layers()) {
+                self.install_layers(layers);
+            }
+        }
         let wanted = if annots {
             !self.annots_loaded()
         } else {

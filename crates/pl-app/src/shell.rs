@@ -150,7 +150,9 @@ fn wgpu_options(software: bool) -> eframe::egui_wgpu::WgpuConfiguration {
         on_surface_status: Arc::new(move |status| {
             SURFACE_TROUBLE.store(true, Ordering::Relaxed);
             if !SURFACE_TROUBLE_LOGGED.swap(true, Ordering::Relaxed) {
-                log(&format!("wgpu: no surface texture for a frame ({status:?})"));
+                log(&format!(
+                    "wgpu: no surface texture for a frame ({status:?})"
+                ));
             }
             on_status(status)
         }),
@@ -205,6 +207,9 @@ fn run_with(
                 ..AppConfig::default()
             };
             let mut state = AppState::new(backend, config, Box::new(NativeDialogs));
+            // The system's printers: the only place the app is given real ones.
+            #[cfg(windows)]
+            state.set_printers(Box::new(crate::print_win32::WinPrinters));
             state.set_clipboard(Box::new(NativeClipboard));
             if let Some(problem) = problem {
                 log(&problem);
@@ -342,9 +347,14 @@ mod tests {
     #[test]
     fn no_adapter_reasons() {
         assert!(no_adapter_reason(&[], true).contains("WARP"));
-        assert_eq!(no_adapter_reason(&[], false), "no Direct3D 12 adapter was found");
+        assert_eq!(
+            no_adapter_reason(&[], false),
+            "no Direct3D 12 adapter was found"
+        );
         assert!(no_adapter_reason(&[(T::Cpu, true)], false).contains("only the software one"));
-        assert!(no_adapter_reason(&[(T::Cpu, true), (T::IntegratedGpu, false)], false)
-            .contains("could draw to the window"));
+        assert!(
+            no_adapter_reason(&[(T::Cpu, true), (T::IntegratedGpu, false)], false)
+                .contains("could draw to the window")
+        );
     }
 }

@@ -1258,7 +1258,10 @@ fn bluebeam_columns_and_custom_statuses_show_and_edit() {
         .expect("the new Bluebeam column");
     assert!(added.multiline);
     assert_eq!(added.bluebeam.as_ref().unwrap().index, 11);
-    assert!(h.state().list_schema().columns.is_empty(), "nothing in the list's own file");
+    assert!(
+        h.state().list_schema().columns.is_empty(),
+        "nothing in the list's own file"
+    );
     click(&mut h, "Close custom columns");
     h.key_press_modifiers(CTRL, Key::Z);
     h.run();

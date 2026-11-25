@@ -72,7 +72,15 @@ const SYSTEM_DLLS: &[&str] = &[
 
 /// Name prefixes of the Visual C++ redistributable, which is not part of Windows (lower case).
 const REDIST_PREFIXES: &[&str] = &[
-    "vcruntime", "msvcp", "concrt", "vccorlib", "vcomp", "vcamp", "mfc", "atl1", "msvcr",
+    "vcruntime",
+    "msvcp",
+    "concrt",
+    "vccorlib",
+    "vcomp",
+    "vcamp",
+    "mfc",
+    "atl1",
+    "msvcr",
 ];
 
 /// How a dependency is classified.
@@ -264,7 +272,10 @@ pub fn run(file: &Path, policy: Policy, use_dumpbin: bool) -> Result<()> {
         Policy::SystemOnly => "all Windows system DLLs",
         Policy::NoVcRedist => "no Visual C++ redistributable or dynamic CRT DLLs",
     };
-    println!("OK: {} import(s), {rule}. Source: {source}.", report.imports.len());
+    println!(
+        "OK: {} import(s), {rule}. Source: {source}.",
+        report.imports.len()
+    );
     Ok(())
 }
 
@@ -301,7 +312,12 @@ mod tests {
         ] {
             assert_eq!(classify(name), DllClass::VcRedist, "{name}");
         }
-        for name in ["zlib1.dll", "libcrypto-3-x64.dll", "api-ms-win-fake", "pdfium.dll"] {
+        for name in [
+            "zlib1.dll",
+            "libcrypto-3-x64.dll",
+            "api-ms-win-fake",
+            "pdfium.dll",
+        ] {
             assert_eq!(classify(name), DllClass::Unknown, "{name}");
         }
     }
@@ -313,7 +329,9 @@ mod tests {
         assert_eq!(bad.len(), 2);
         assert!(bad[0].starts_with("VCRUNTIME140.dll"));
         assert!(bad[1].starts_with("zlib1.dll"));
-        assert!(violations(&strings(&["KERNEL32.dll", "GDI32.dll"]), Policy::SystemOnly).is_empty());
+        assert!(
+            violations(&strings(&["KERNEL32.dll", "GDI32.dll"]), Policy::SystemOnly).is_empty()
+        );
     }
 
     #[test]
@@ -343,7 +361,11 @@ mod tests {
         let text = "\r\nDump of file pdfium.dll\r\n\r\nFile Type: DLL\r\n\r\n  Image has the following dependencies:\r\n\r\n    KERNEL32.dll\r\n    api-ms-win-crt-heap-l1-1-0.dll\r\n\r\n  Image has the following delay load dependencies:\r\n\r\n    dbghelp.dll\r\n\r\n  Summary\r\n\r\n        1000 .data\r\n        2000 .rdata\r\n";
         assert_eq!(
             parse_dumpbin_dependents(text),
-            ["KERNEL32.dll", "api-ms-win-crt-heap-l1-1-0.dll", "dbghelp.dll"]
+            [
+                "KERNEL32.dll",
+                "api-ms-win-crt-heap-l1-1-0.dll",
+                "dbghelp.dll"
+            ]
         );
         assert!(parse_dumpbin_dependents("Summary\n  1000 .data\n").is_empty());
     }
@@ -378,7 +400,9 @@ mod tests {
             }),
         )
         .unwrap();
-        let err = check_file(&bad, Policy::SystemOnly, false).unwrap_err().to_string();
+        let err = check_file(&bad, Policy::SystemOnly, false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("VCRUNTIME140.dll"), "{err}");
         assert!(check_file(&bad, Policy::NoVcRedist, false).is_err());
 

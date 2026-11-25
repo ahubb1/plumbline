@@ -52,6 +52,7 @@ pub mod markup_ops;
 pub mod measure_data;
 pub mod measure_ops;
 mod measuring;
+pub mod outputs;
 pub mod recent;
 pub mod scales;
 pub mod script;
@@ -59,7 +60,9 @@ pub mod script_measure;
 pub mod search;
 pub mod selection;
 pub mod session;
+pub mod sets;
 pub mod snap;
+pub mod structure;
 pub mod view;
 
 #[cfg(test)]
@@ -85,6 +88,7 @@ pub use measure_data::{
     ViewportData,
 };
 pub use measure_ops::{MeasureShape, MeasurementRow};
+pub use outputs::{combine_files, CombinePart, PrintSource};
 pub use recent::{
     default_data_dir, RecentEntry, RecentFiles, APP_DIR_NAME, DEFAULT_MAX_RECENT, RECENT_FILE_NAME,
 };
@@ -99,7 +103,16 @@ pub use session::{
     Document, DocumentId, OpenMode, PdfiumCheck, SaveOutcome, SceneState, Session, SessionOptions,
     UserUnitPolicy, FILE_RELEASE_WAIT, SCENE_CACHE_PAGES, TEXT_CACHE_PAGES,
 };
+pub use sets::{
+    relative_path, sheets_for, spawn_set_search, DrawingSet, SetFile, SetHit, SetSearch,
+    SetSearchEvent, SetSearchJob, SheetInfo, SheetRef, SET_EXTENSION, SET_FORMAT,
+};
 pub use snap::{SnapKind, SnapOptions, SnapOutcome, SnapTarget};
+pub use structure::{
+    BookmarkSpec, BookmarkTarget, DestSpec, FlattenScope, LinkData, LinkInfo, LinkTarget,
+    PageFingerprint, PageMap, PageSource, StructCommand, StructReport, StructureChange,
+    StructureOutcome, ViewSpec, DEFAULT_STRUCTURE_UNDO_BUDGET,
+};
 pub use view::{
     zoom_step, FitMode, PageHit, PageLayout, PageTiles, ViewState, DEFAULT_PAGE_GAP,
     DEFAULT_PAGE_MARGIN, ZOOM_STEPS,

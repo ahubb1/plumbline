@@ -131,9 +131,12 @@ pub(crate) fn recalculate(table: &mut Table) {
 
     // Wall Area is worked out from the height column; when that is a formula column, Wall
     // Area comes after it, and a formula that uses Wall Area depends on it.
-    let height_formula = table
-        .height_column
-        .filter(|h| table.custom.get(*h).is_some_and(|c| c.kind == ColumnType::Formula));
+    let height_formula = table.height_column.filter(|h| {
+        table
+            .custom
+            .get(*h)
+            .is_some_and(|c| c.kind == ColumnType::Formula)
+    });
     let height_position = height_formula.and_then(position);
 
     // Dependencies between formula columns, and the loops among them.
@@ -229,9 +232,9 @@ pub(crate) fn recalculate(table: &mut Table) {
                     // it, rather than worked out to 0.
                     let blank = table.custom[column].bluebeam.is_some()
                         && !sources.is_empty()
-                        && sources.iter().all(|s| {
-                            matches!(fetch(table, row_ref, s), Ok(Scalar::Empty))
-                        });
+                        && sources
+                            .iter()
+                            .all(|s| matches!(fetch(table, row_ref, s), Ok(Scalar::Empty)));
                     if blank {
                         Ok(Scalar::Empty)
                     } else {

@@ -98,8 +98,14 @@ fn edit_one(name: &str, path: &Path, index: usize) {
     if free_text || had_rc {
         let rc = rc.unwrap_or_else(|| panic!("{name} {id}: /RC"));
         assert!(rc.starts_with("<?xml"), "{rc}");
-        assert!(rc.contains("<body xmlns=\"http://www.w3.org/1999/xhtml\""), "{rc}");
-        assert!(rc.contains("<p>Edited by Plumbline</p><p>second line</p>"), "{rc}");
+        assert!(
+            rc.contains("<body xmlns=\"http://www.w3.org/1999/xhtml\""),
+            "{rc}"
+        );
+        assert!(
+            rc.contains("<p>Edited by Plumbline</p><p>second line</p>"),
+            "{rc}"
+        );
         assert!(rc.ends_with("</body>"), "{rc}");
     } else {
         assert!(rc.is_none());
@@ -108,7 +114,10 @@ fn edit_one(name: &str, path: &Path, index: usize) {
         // Ours now: a full appearance and the keys that describe it.
         assert!(got.free_text.is_some(), "{name} {id}");
         for key in ["DA", "DS", "AP"] {
-            assert!(got.original_dict().unwrap().has(key.as_bytes()), "{name} {key}");
+            assert!(
+                got.original_dict().unwrap().has(key.as_bytes()),
+                "{name} {key}"
+            );
         }
     }
 }
@@ -138,10 +147,7 @@ fn an_edited_acrobat_comment_is_the_only_object_written() {
         let Some(path) = sample(name) else { continue };
         let doc = PdfDocument::from_bytes(std::fs::read(&path).unwrap(), None).unwrap();
         let set = AnnotSet::load(&doc);
-        let first = set
-            .iter()
-            .position(|a| a.kind != AnnotKind::Popup)
-            .unwrap();
+        let first = set.iter().position(|a| a.kind != AnnotKind::Popup).unwrap();
         edit_one(name, &path, first);
     }
 }
@@ -183,7 +189,15 @@ fn acrobat_free_text_da_ds_and_rd_as_found() {
         let mut editable = a.clone();
         assert!(editable.make_editable());
         let t = editable.free_text.as_ref().unwrap();
-        assert_eq!(t.color.to_u8(), Rgb::new(0x6B as f32 / 255.0, 0xD9 as f32 / 255.0, 0x29 as f32 / 255.0).to_u8());
+        assert_eq!(
+            t.color.to_u8(),
+            Rgb::new(
+                0x6B as f32 / 255.0,
+                0xD9 as f32 / 255.0,
+                0x29 as f32 / 255.0
+            )
+            .to_u8()
+        );
         assert_eq!(editable.style.stroke, None);
     }
 }

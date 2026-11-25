@@ -259,7 +259,12 @@ fn symbol_path(symbol: CountSymbol, c: Point, size: f64, rotation: u16) -> BezPa
 /// The outline of a count marker as the vertices of the small closed polygon a count is
 /// written as (one per marker, as Revu writes them): the symbol's own corners, a circle as
 /// 24 points, a line figure (a cross, a plus, a tick) as its points in drawing order.
-pub(crate) fn symbol_outline(symbol: CountSymbol, c: Point, size: f64, rotation: u16) -> Vec<Point> {
+pub(crate) fn symbol_outline(
+    symbol: CountSymbol,
+    c: Point,
+    size: f64,
+    rotation: u16,
+) -> Vec<Point> {
     if matches!(symbol, CountSymbol::Dot | CountSymbol::Ring) {
         let h = size / 2.0;
         return (0..24)

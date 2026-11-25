@@ -141,6 +141,8 @@ pub enum SidePage {
     Thumbnails,
     Bookmarks,
     Layers,
+    /// The open drawing set (shown while one is open).
+    Set,
 }
 
 impl AppState {
@@ -328,6 +330,19 @@ impl DocView {
         }
     }
 
+    /// Makes `page` the current page for as long as the scroll stays at `scroll`.
+    pub(crate) fn pin_page(&mut self, page: u32, scroll: Vec2) {
+        self.page_pin = Some((page, scroll));
+    }
+
+    /// Takes the document's page list as it is now (after a structural change).
+    pub(crate) fn reset_page_list(&mut self, doc: &Document) {
+        self.geometry_epoch = doc.geometry_epoch();
+        self.view.set_pages(doc.pages());
+        self.requested = None;
+        self.page_pin = None;
+    }
+
     /// `(current hit number, hit count)`, one-based; `None` without a search.
     pub fn search_position(&self) -> Option<(usize, usize)> {
         let search = self.search.as_ref()?;
@@ -391,6 +406,12 @@ pub struct AppState {
     /// The markups list.
     pub(crate) list: ListState,
     pub(crate) overlays: OverlayTiles,
+    /// Page operations, bookmarks, links, flatten: the M8 panels and dialogs.
+    pub(crate) structure: crate::structure::StructureUi,
+    /// The open drawing set and its search.
+    pub(crate) sets: crate::setpanel::SetsUi,
+    /// The print panel and a running print job.
+    pub(crate) print: crate::print::PrintUi,
     last_copied: Option<String>,
     /// What the platform's paste event carried, until the Paste command takes it.
     pasted_text: Option<String>,
@@ -443,6 +464,9 @@ impl AppState {
             jobs: Jobs::default(),
             list: ListState::new(config.data_dir.as_deref()),
             overlays: OverlayTiles::default(),
+            structure: crate::structure::StructureUi::default(),
+            sets: crate::setpanel::SetsUi::default(),
+            print: crate::print::PrintUi::default(),
             recent: config.data_dir.map(RecentFiles::load),
             dialogs,
             chrome: Chrome {
@@ -556,8 +580,11 @@ impl AppState {
     /// done. For tests and shutdown; the window itself never waits. The results are taken up
     /// by the next frame.
     pub fn wait_idle(&mut self, timeout: Duration) -> bool {
-        // Saves and loads on worker threads are waited for and taken in.
+        // Saves and loads on worker threads are waited for and taken in, and so is a
+        // combination being written.
         self.drain_jobs();
+        self.poll_combine(true);
+        self.poll_set_adding(true);
         let mut done = true;
         for doc in self.session.documents_mut() {
             done &= doc.wait_background(timeout);
@@ -914,6 +941,7 @@ impl AppState {
             let Some(dv) = self.views.remove(&id) else {
                 continue;
             };
+            self.structure.history.remove(&id);
             self.scheduler.advance(dv.stream);
             let last_view = !self.views.values().any(|v| v.doc == dv.doc);
             if !last_view {
@@ -947,6 +975,9 @@ impl AppState {
                 self.markup.text_editor = None;
             }
             self.jobs.forget(dv.doc);
+            self.structure.links.remove(&dv.doc);
+            self.structure.outlines.remove(&dv.doc);
+            self.structure.page_selection.remove(&dv.doc);
             let _ = self.session.close(dv.doc);
         }
         if self.views.is_empty() {
@@ -1184,9 +1215,8 @@ impl AppState {
             Command::SaveAs => {
                 self.start_save(SaveHow::As);
             }
-            Command::SaveOptimised => {
-                self.start_save(SaveHow::Optimised);
-            }
+            // A full rewrite: a signed document asks first.
+            Command::SaveOptimised => self.save_optimised(),
             Command::ToggleMarkupsList => {
                 let open = !self.list.open;
                 self.set_markups_list_open(open);
@@ -1263,7 +1293,9 @@ impl AppState {
             Command::Dismiss => {
                 let has_markups = self.selected_count() > 0;
                 let has_text = self.active_view().is_some_and(|v| v.selection.is_some());
-                if self.cancel_text_edit() || self.list_dismiss() {
+                if self.structure.page_drag.take().is_some() {
+                    // A thumbnail drag is dropped: nothing moves when the button comes up.
+                } else if self.cancel_text_edit() || self.list_dismiss() {
                     // What was being typed is thrown away; nothing else changes.
                 } else if self.escape_leaves_field(ctx) {
                     // Escape in a text field that has nothing of its own to cancel (the
@@ -1315,6 +1347,52 @@ impl AppState {
                 }
             }
             Command::SelectAll => self.select_all_on_page(),
+            Command::InsertBlankPage => {
+                self.insert_blank_page();
+            }
+            Command::InsertPagesFromFile => {
+                self.insert_pages_from_file();
+            }
+            Command::DeletePages => self.delete_pages(),
+            Command::RotatePages(degrees) => {
+                self.rotate_pages(degrees);
+            }
+            Command::ExtractPages => {
+                self.extract_pages();
+            }
+            Command::ReplacePages => {
+                self.replace_pages();
+            }
+            Command::CombineFiles => self.open_combine_dialog(),
+            Command::Flatten => self.open_flatten_dialog(),
+            Command::Print => self.open_print_panel(),
+            Command::NavigateBack => {
+                self.navigate_back();
+            }
+            Command::NavigateForward => {
+                self.navigate_forward();
+            }
+            Command::AddBookmark => {
+                self.chrome.side_open = true;
+                self.chrome.side_page = SidePage::Bookmarks;
+                self.add_bookmark();
+            }
+            Command::OpenSet => {
+                if let Some(path) = self.dialogs.pick_set() {
+                    self.open_set(&path);
+                }
+            }
+            Command::NewSet => {
+                if let Some(path) = self.dialogs.save_set("Drawing set.plset") {
+                    self.new_set_at(&path);
+                }
+            }
+            Command::NextSheet => {
+                self.step_sheet(true);
+            }
+            Command::PreviousSheet => {
+                self.step_sheet(false);
+            }
             other => self.run_on_view(other),
         }
     }
@@ -1399,7 +1477,17 @@ impl AppState {
         }
         ctx.set_theme(self.chrome.theme);
         self.receive_results(&ctx);
+        self.follow_structure_changes();
         self.apply_invalidations();
+        // A set search and a print job report back through these; frames keep coming slowly
+        // while either runs.
+        let searching = self.poll_set_search();
+        let printing = self.poll_print();
+        let combining = self.poll_combine(false);
+        let adding = self.poll_set_adding(false);
+        if searching || printing || combining || adding {
+            ctx.request_repaint_after(Duration::from_millis(60));
+        }
         // The window's own close button: documents with unsaved markups are asked about first.
         if ctx.input(|i| i.viewport().close_requested())
             && !self.markup.quit_confirmed
@@ -1444,6 +1532,8 @@ impl AppState {
         crate::measure::scale_panel(self, &ctx);
         crate::measure::request_dialog(self, &ctx);
         crate::list::formula_dialog(self, &ctx);
+        crate::structure::dialogs(self, &ctx);
+        crate::print::panel(self, &ctx);
         crate::chrome::drop_hint(&ctx);
 
         self.collect_closed();
@@ -1571,6 +1661,8 @@ impl AppState {
         if self.chrome.password.is_some()
             || self.markup.close_prompt.is_some()
             || self.markup.recovery.is_some()
+            || self.structure.modal_open()
+            || self.print.open
         {
             return;
         }

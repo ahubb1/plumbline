@@ -60,7 +60,10 @@ fn files_in(dir: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
         let path = entry?.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
         if path.is_file() && keep(name) {
             out.push(path);
         }
@@ -96,7 +99,9 @@ pub fn assemble(inputs: &Inputs, out_dir: &Path) -> Result<Vec<String>> {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         plan.push((path, format!("licenses/pdfium/third_party/{name}")));
     }
-    let fonts = files_in(&inputs.fonts_dir, |n| n.to_ascii_lowercase().ends_with(".ttf"))?;
+    let fonts = files_in(&inputs.fonts_dir, |n| {
+        n.to_ascii_lowercase().ends_with(".ttf")
+    })?;
     if fonts.is_empty() {
         bail!("{} holds no .ttf files", inputs.fonts_dir.display());
     }
@@ -121,7 +126,10 @@ pub fn assemble(inputs: &Inputs, out_dir: &Path) -> Result<Vec<String>> {
         .map(|(from, _)| from.display().to_string())
         .collect();
     if !missing.is_empty() {
-        bail!("cannot assemble the portable folder; missing:\n  {}", missing.join("\n  "));
+        bail!(
+            "cannot assemble the portable folder; missing:\n  {}",
+            missing.join("\n  ")
+        );
     }
 
     if out_dir.exists() {
@@ -202,7 +210,10 @@ pub fn third_party_text(
     section(&mut out, "2. Rust crates: licence texts");
     out.push_str(crate_texts.trim_end());
     out.push('\n');
-    section(&mut out, "3. Liberation Sans fonts: SIL Open Font License 1.1");
+    section(
+        &mut out,
+        "3. Liberation Sans fonts: SIL Open Font License 1.1",
+    );
     out.push_str(fonts.trim_end());
     out.push('\n');
     section(
@@ -212,7 +223,11 @@ pub fn third_party_text(
     titled_text(&mut out, "pdfium-binaries packaging: LICENSE", &pdfium);
     for path in notices {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        titled_text(&mut out, &format!("licenses/{name}"), &licenses::read_text(&path)?);
+        titled_text(
+            &mut out,
+            &format!("licenses/{name}"),
+            &licenses::read_text(&path)?,
+        );
     }
     Ok(out)
 }
@@ -281,7 +296,11 @@ pub fn run(options: &Options) -> Result<PathBuf> {
     let dist_root = meta.target_directory.join("dist");
     let out_dir = dist_root.join(DIST_NAME);
     let written = assemble(&inputs, &out_dir)?;
-    println!("portable folder: {} ({} files)", out_dir.display(), written.len());
+    println!(
+        "portable folder: {} ({} files)",
+        out_dir.display(),
+        written.len()
+    );
     for rel in &written {
         println!("  {rel}");
     }
@@ -300,7 +319,8 @@ pub fn run(options: &Options) -> Result<PathBuf> {
         println!("portable zip: {}", zip.display());
         // The zip is only good if it works somewhere else: unpack it into an empty folder
         // and have its own plumb.exe read a PDF there.
-        let work = std::env::temp_dir().join(format!("plumbline-dist-verify-{}", std::process::id()));
+        let work =
+            std::env::temp_dir().join(format!("plumbline-dist-verify-{}", std::process::id()));
         let checked = verify_zip(&zip, &work);
         let _ = std::fs::remove_dir_all(&work);
         let report = checked.context("the portable zip does not run from a clean folder")?;
@@ -333,7 +353,10 @@ pub fn probe_pdf() -> Vec<u8> {
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>"
             .to_string(),
-        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        format!(
+            "<< /Length {} >>\nstream\n{content}endstream",
+            content.len()
+        ),
     ];
     let mut out = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();
@@ -364,7 +387,8 @@ pub fn probe_pdf() -> Vec<u8> {
 /// returns the line it reported.
 pub fn verify_zip(zip: &Path, work: &Path) -> Result<String> {
     if work.exists() {
-        std::fs::remove_dir_all(work).with_context(|| format!("cannot clear {}", work.display()))?;
+        std::fs::remove_dir_all(work)
+            .with_context(|| format!("cannot clear {}", work.display()))?;
     }
     std::fs::create_dir_all(work).with_context(|| format!("cannot create {}", work.display()))?;
     util::run(
@@ -387,7 +411,11 @@ pub fn verify_zip(zip: &Path, work: &Path) -> Result<String> {
     std::fs::write(&pdf, probe_pdf()).with_context(|| format!("cannot write {}", pdf.display()))?;
 
     let mut command = Command::new(&exe);
-    command.arg("info").arg("probe.pdf").current_dir(work).env_clear();
+    command
+        .arg("info")
+        .arg("probe.pdf")
+        .current_dir(work)
+        .env_clear();
     // Windows itself needs these two; nothing else is passed on.
     for keep in ["SystemRoot", "windir"] {
         if let Some(value) = std::env::var_os(keep) {
@@ -403,7 +431,10 @@ pub fn verify_zip(zip: &Path, work: &Path) -> Result<String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        bail!("plumb info failed with {}:\n{stdout}{stderr}", output.status);
+        bail!(
+            "plumb info failed with {}:\n{stdout}{stderr}",
+            output.status
+        );
     }
     match stdout.lines().find(|line| line.starts_with("pages:")) {
         Some(line) if line.trim() == "pages: 1" => Ok(line.trim().to_string()),
@@ -441,7 +472,8 @@ mod tests {
         write(fonts.join("LICENSE"), b"OFL");
         write(root.join("LICENSE-MIT"), b"mit");
         write(root.join("Cargo.toml"), b"[workspace]");
-        let third_party = third_party_text("crate listing\n", "crate texts\n", &fonts, &pdfium).unwrap();
+        let third_party =
+            third_party_text("crate listing\n", "crate texts\n", &fonts, &pdfium).unwrap();
         Inputs {
             release_dir: release,
             pdfium_dir: pdfium,
@@ -508,7 +540,10 @@ mod tests {
         }
         assert_eq!(std::fs::read(out.join("plumbline.exe")).unwrap(), b"app");
         assert_eq!(std::fs::read(out.join("pdfium.dll")).unwrap(), b"dll");
-        assert_eq!(std::fs::read(out.join("licenses/fonts/LICENSE")).unwrap(), b"OFL");
+        assert_eq!(
+            std::fs::read(out.join("licenses/fonts/LICENSE")).unwrap(),
+            b"OFL"
+        );
         let notice = std::fs::read_to_string(out.join("THIRD-PARTY-LICENSES.txt")).unwrap();
         assert!(notice.contains("PDFium") && notice.contains("crate listing"));
         // Debug symbols, headers and the workspace manifest are not shipped.
@@ -551,7 +586,10 @@ mod tests {
         let work = clean.path().join("unpacked");
         let report = verify_zip(&zip, &work).unwrap();
         assert_eq!(report, "pages: 1");
-        assert!(work.join(DIST_NAME).join("licenses/fonts/LICENSE").is_file());
+        assert!(work
+            .join(DIST_NAME)
+            .join("licenses/fonts/LICENSE")
+            .is_file());
 
         // A zip without the DLL is caught: plumb.exe cannot be helped out by the search path.
         std::fs::remove_file(dist_root.join(DIST_NAME).join("pdfium.dll")).unwrap();
@@ -607,7 +645,10 @@ mod tests {
         std::fs::remove_file(inputs.release_dir.join("plumb.exe")).unwrap();
         let err = assemble(&inputs, &out).unwrap_err().to_string();
         assert!(err.contains("plumb.exe"), "{err}");
-        assert!(out.join("marker.txt").is_file(), "output was cleared despite the failure");
+        assert!(
+            out.join("marker.txt").is_file(),
+            "output was cleared despite the failure"
+        );
     }
 
     #[test]

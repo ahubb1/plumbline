@@ -2,10 +2,10 @@
 
 Plumbline is an original Windows application for marking up PDF drawings and taking
 measurements and quantities off them (a "markup and takeoff" tool), written in Rust. It is an
-early preview: markup, the markups list, measurement and takeoff work, and Bluebeam Revu
-measurements, custom columns and statuses are read and written. Page editing, compare and
-overlay, OCR and an installer are still to come. The design and milestones are in
-[docs/plan.md](docs/plan.md).
+early preview: markup, the markups list, measurement and takeoff work, Bluebeam Revu
+measurements, custom columns and statuses are read and written, and pages, bookmarks, links,
+flatten, drawing sets and printing are in (milestone M8). Compare and overlay, OCR and an
+installer are still to come. The design and milestones are in [docs/plan.md](docs/plan.md).
 
 "Plumbline" is a working codename.
 
@@ -272,6 +272,78 @@ runs. A count is one row with its item total, however many annotations carry its
 writes one per item). Numbers in CSV and XLSX are rounded to the column's places plus six,
 which drops float noise; the list and its formulas keep full precision.
 The code is in `crates/pl-app/src/measure.rs`.
+
+## Pages, bookmarks, links, sets and printing in the app
+
+Changes to a document's structure (its pages, bookmarks and links, and flatten) are each one
+undo step, like a markup edit, and are kept in memory until the document is saved. Saving
+such a document rewrites the whole file (written to a temporary file, checked with lopdf,
+hayro-syntax and PDFium, then put in place of the original); a document with only markup
+changes is still saved by appending. Unsaved markups are written into the structure before a
+structural step, so a markup moves with its page. A document with digital signatures asks
+first: the step goes ahead only when the user agrees that the signatures will no longer be
+valid once it is saved. The model behind all of this is pl-doc's
+(`crates/pl-doc/src/structure.rs`).
+
+- **Pages.** The Pages page of the side panel has a bar for Insert blank page (the size of its
+  neighbour), Rotate (this changes the file; the view's own rotation is under View), Delete
+  and More (insert pages from another PDF, replace pages with the first pages of another PDF,
+  extract pages to a new file, Combine files); a thumbnail's right-click menu has the same
+  operations, and so does Edit > Pages. A click on a thumbnail shows that page, Ctrl+click
+  adds or removes a page, Shift+click picks a run; the operations act on the picked pages, or
+  on the page in view. Dragging thumbnails moves the pages, with a line where they will go.
+  Delete asks first, in the window. File > Combine files makes a new PDF from a list of files
+  (reordered with the arrows), each with all its pages or a range such as `1-3, 5`, and opens
+  it.
+- **Bookmarks.** The Bookmarks page is editable: + adds a bookmark for the place in view
+  (after the chosen bookmark) and starts renaming it; a double-click or Rename renames in
+  place (Enter keeps it, Esc cancels); Set to view points the chosen bookmark at the place in
+  view; the cross deletes it. Dragging a bookmark onto the upper or lower edge of another puts
+  it before or after that one, onto its middle puts it inside. A click goes to the bookmark.
+- **Links.** The pointer over a link says where it leads; a click with the Pan tool (H), or a
+  double-click with Select, follows it. A link within the document moves the view, and Back
+  and Forward (Alt+Left, Alt+Right, also in the View menu) return; a link to another PDF opens
+  it in a tab at its page; a web address opens in the browser only after a yes in the window;
+  a link that would start a program or open another kind of file is refused with a message.
+  The Link tool (D) drags out the area of a new link and then asks where it leads: a page of
+  this document, a page of another PDF (named relative to this document's folder), or a web
+  address. Links are selected, moved and deleted with Select; the properties panel shows where
+  a selected link leads, with Change target and Follow.
+- **Flatten.** Edit > Flatten markups draws all markups, the selected ones or those on given
+  pages into the page content (form fields too, if asked), so they look the same but are no
+  longer markups. The dialog says so: Undo takes it back until the document is saved, after
+  that it is permanent.
+- **Drawing sets.** A set (`.plset`, a small JSON file kept beside the drawings, with paths
+  relative to its folder) lists PDF files and a sheet per page; sheet numbers come from the
+  page labels, or the file name. File > Open set opens one, File > New set from open files
+  makes one of the open documents. The Set page of the side panel lists the sheets by file; a
+  click opens the sheet (in the tab its file already has, or a new one), and Alt+Page Down and
+  Alt+Page Up go to the next and previous sheet. Its search box searches every file of the set
+  on a worker thread and lists the matches by file and page; a click shows the match. A file
+  that is not where the set says is marked missing, and Find points the set at its new place.
+- **Printing.** File > Print (Ctrl+P) opens Plumbline's own print panel (not the Windows
+  dialog): the printer, all pages, the page in view or a range, fit to paper or actual size,
+  markups or not, and copies; each page's orientation is chosen for it (a wide sheet turns
+  onto portrait paper when it prints larger that way), and a small picture shows where the
+  first page lands. The pages are drawn by PDFium in bands at the printer's resolution and
+  sent through GDI on a worker thread, with progress and Cancel. What prints is the document
+  as it stands, unsaved changes included. The layout and the banded rendering are in
+  `crates/pl-render/src/print.rs` (tested against an in-memory device); the Windows printer
+  is `crates/pl-app/src/print_win32.rs`, which only the window's start-up gives the app, so
+  no test can reach a real printer.
+
+The code is in `crates/pl-app/src`: `pages.rs`, `bookmarks.rs`, `links.rs`, `structure.rs`
+(the confirmations and the flatten dialog), `setpanel.rs`, `print.rs` and `print_win32.rs`.
+
+From the command line, `plumb pages <pdf>` lists the pages (label, size, rotation, user unit,
+annotations and a content fingerprint) and `plumb pages <pdf> <op...> -o <out>` runs page
+operations in order (`insert-blank`, `insert-from`, `delete`, `move`, `rotate`, `extract`,
+`replace`, `merge`, and `split` last); `plumb outline` lists and edits bookmarks (edits are
+appended, so signatures stay valid), `plumb links` lists links without following any, `plumb
+flatten` flattens, and `plumb set create|add|list|search` works on the same `.plset` files as
+the app. A signed file is refused for a rewrite unless `--invalidate-signatures` is given.
+`plumb --help` has the details; the command-file steps are described at the top of
+`crates/pl-cli/src/script_ext.rs`.
 
 ## Build tasks
 

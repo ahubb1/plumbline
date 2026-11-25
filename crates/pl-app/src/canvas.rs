@@ -270,9 +270,12 @@ pub fn show(app: &mut AppState, ui: &mut Ui, id: ViewId) {
         ctx.set_cursor_icon(CursorIcon::Grab);
     }
 
+    // ---- links: the Link tool's drag, following a link, the target under the pointer ---------
+    let link_tool = !space && !panning && crate::links::canvas_links(app, ui, id, &response, rect);
+
     // ---- the markup tool: pointer events go to it, and it says whether text selection (the
     // Select tool's other job) may have this frame's pointer.
-    let text_mode = pointer_phase(app, ui, id, &response, rect, space);
+    let text_mode = !link_tool && pointer_phase(app, ui, id, &response, rect, space);
     let Some(dv) = app.views.get_mut(&id) else {
         return;
     };
@@ -686,7 +689,7 @@ fn pointer_phase(
 
     if tool.kind().is_none() || space {
         // Pan, or Space held: the canvas itself moves; no tool and no text selection.
-        return !matches!(tool, Tool::Pan);
+        return !matches!(tool, Tool::Pan | Tool::Link);
     }
 
     let mut markup_used = false;

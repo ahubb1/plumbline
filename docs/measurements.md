@@ -192,3 +192,33 @@ order, using `if`, `min`, `max`, `abs`, `ceil` and `round`).
 
 The release figure being the slower one is run-to-run noise on a busy machine; both are far
 inside the budget. The test prints its timings (`TIMING`) with `--nocapture`.
+
+## 9. Banded printing of a large sheet (M8)
+
+Criterion: "Banded print render to a memory device equals a direct render." Printing is
+measured into `pl_render::MemorySink` (no printer is ever involved): one sheet of the real
+sample (`samples/site-development-plans.pdf`, sheet 1, 34 x 22 in) on 34 x 22 in paper at
+300 dpi, actual size, so the page image is 10,200 x 6,600 px (about 270 MB as one RGBA
+bitmap). The sink keeps no pixels (`MemorySink::records_only`).
+
+| What | Measured (dev test build; PDFium is the same optimised DLL) | Budget | Where |
+|---|---|---|---|
+| Print the sheet in 26 bands of 256 rows | 0.51 s (three runs, 0.51 s each), after the sheet's content was parsed once (0.06 s) | 15 s | `real_sample_sheet_prints_in_bands_at_300_dpi` in `crates/pl-render/tests/print.rs` |
+| Pixel memory held for one band at its peak | 26.4 MB | `pl_render::band_memory_bound`: 26.7 MB for a 10,200 px wide, 256-row band | same test, and `memory_per_band_is_bounded_on_a_large_sheet` (Letter at 600 dpi, 64-row bands, asserted under 1/20 of the whole sheet) |
+
+The bound is the band plus a 128-px gutter above and to the left (`TILE_GUTTER`, the same
+glyph-cache workaround as tiles) and an 8-px gutter below and to the right
+(`WINDOW_TRAILING_GUTTER`), plus the reply. The band is converted to the sink's format
+(BGRA, 24-bit DIB rows, or RGBA) in place, so the print loop adds nothing to it. At 600 dpi
+the same sheet would hold about 53 MB per 256-row band instead of about 1 GB for the whole
+sheet.
+
+Equality: stitched bands are compared with a direct full-page render at the same resolution
+on the plain, rotated, UserUnit, CropBox and inherited-box fixtures and on the four-geometry
+markup fixture, with and without annotations, and on the real sample at 75 dpi. They are
+within one grey level except for a few anti-aliased edge pixels that differ by two (PDFium's
+coverage depends on where the destination bitmap starts, as for tiles in M1): the most seen
+is 103 such pixels in 1,014,600 on a `/Rotate 90` page, 11 in 4,207,500 on the sample. The
+test allows two levels on at most one pixel in 5,000. The 8-px trailing gutter was added
+because, without it, the bottom row of every band differed by up to 14 grey levels on the
+sample. The test prints its figures (`TIMING`, `MATCH`) with `--nocapture`.

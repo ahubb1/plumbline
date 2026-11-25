@@ -533,7 +533,11 @@ mod tests {
         let hole = ft_rect(1.0, 1.0, 6.0, 6.0);
         assert!(area(room.clone(), vec![hole.clone(), hole.clone()]).is_err());
         // One hole holding another.
-        assert!(area(room.clone(), vec![hole.clone(), ft_rect(2.0, 2.0, 3.0, 3.0)]).is_err());
+        assert!(area(
+            room.clone(),
+            vec![hole.clone(), ft_rect(2.0, 2.0, 3.0, 3.0)]
+        )
+        .is_err());
         // (3) A triangle whose corners are inside an L but whose long edge crosses the notch.
         let l: Vec<Point> = [
             (0.0, 0.0),
@@ -673,11 +677,24 @@ mod tests {
     }
 
     fn feet_of(ed: &Editor, id: &AnnotId) -> f64 {
-        ed.set().get(id).unwrap().quantities().unwrap().length.unwrap() / FT
+        ed.set()
+            .get(id)
+            .unwrap()
+            .quantities()
+            .unwrap()
+            .length
+            .unwrap()
+            / FT
     }
 
     fn scale_of(ed: &Editor, id: &AnnotId) -> ScaleRef {
-        ed.set().get(id).unwrap().measurement().unwrap().scale.clone()
+        ed.set()
+            .get(id)
+            .unwrap()
+            .measurement()
+            .unwrap()
+            .scale
+            .clone()
     }
 
     #[test]

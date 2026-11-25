@@ -2245,7 +2245,10 @@ impl TableDelegate for Delegate<'_> {
                             .show_ui(ui, |ui| {
                                 for state in ReviewState::ALL {
                                     if ui
-                                        .selectable_label(in_review && r.status == state, state.name())
+                                        .selectable_label(
+                                            in_review && r.status == state,
+                                            state.name(),
+                                        )
                                         .clicked()
                                     {
                                         picked = Some(state);
@@ -2266,8 +2269,10 @@ impl TableDelegate for Delegate<'_> {
                                             .on_hover_text(format!("Status set {}", set.model))
                                             .clicked()
                                         {
-                                            picked_named =
-                                                Some(Status::new(set.model.as_str(), state.as_str()));
+                                            picked_named = Some(Status::new(
+                                                set.model.as_str(),
+                                                state.as_str(),
+                                            ));
                                         }
                                     }
                                 }
@@ -2379,7 +2384,15 @@ impl TableDelegate for Delegate<'_> {
                             // A column shown from what Bluebeam stored is not typed in.
                             let editable =
                                 !custom.is_read_only() || custom.kind == ColumnType::Formula;
-                            self.text_cell(ui, &id, column, &text, editable, &row_name, &background);
+                            self.text_cell(
+                                ui,
+                                &id,
+                                column,
+                                &text,
+                                editable,
+                                &row_name,
+                                &background,
+                            );
                         }
                     },
                     _ => {
@@ -2513,7 +2526,12 @@ pub fn formula_dialog(app: &mut AppState, ctx: &egui::Context) {
                         .columns
                         .iter()
                         .any(|c| c.title.trim().to_lowercase() == name))
-                .then(|| format!("There is already a column called \"{}\".", dialog.name.trim()))
+                .then(|| {
+                    format!(
+                        "There is already a column called \"{}\".",
+                        dialog.name.trim()
+                    )
+                })
             };
             dialog.message =
                 crate::measure::formula_problem(&app.list.schema, &dialog.name, &dialog.formula)
@@ -2725,7 +2743,9 @@ fn columns_dialog(app: &mut AppState, ctx: &egui::Context) {
         let in_file = has_document && dialog.in_file.unwrap_or(doc_has_columns);
         let result = match (&valued, kind) {
             // A Bluebeam column: its choices are text only.
-            (Ok(options), ColumnType::Choice) if in_file && options.iter().any(|(_, v)| v.is_some()) => {
+            (Ok(options), ColumnType::Choice)
+                if in_file && options.iter().any(|(_, v)| v.is_some()) =>
+            {
                 Err("a Bluebeam column's choices cannot stand for numbers".to_string())
             }
             _ if in_file => {

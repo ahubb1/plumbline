@@ -44,8 +44,16 @@ pub enum DocError {
     Annot(#[from] pl_annot::AnnotError),
     #[error("the markups could not be drawn: {0}")]
     Draw(String),
+    /// The file's security settings do not allow the operation (`what`, e.g. "change its
+    /// pages"); nothing changed.
+    #[error("the author of this document does not allow it to {what}")]
+    NotPermitted { what: &'static str },
     #[error("the document has unsaved markup changes; save or discard them first")]
     UnsavedMarkups,
+    /// The document has page, bookmark, link or flatten changes that only a save of the whole
+    /// document writes (see [`crate::structure`]).
+    #[error("the document has unsaved page or bookmark changes; save or discard them first")]
+    UnsavedStructure,
     #[error("{} is open in another tab; close it there or choose another name", path.display())]
     OpenElsewhere { path: PathBuf },
     #[error("command file: {0}")]

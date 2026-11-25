@@ -3060,6 +3060,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3132,6 +3133,7 @@ dependencies = [
  "hayro-syntax",
  "lopdf",
  "pl-geom",
+ "pl-render",
  "pl-testkit",
  "tempfile",
  "thiserror 2.0.21",

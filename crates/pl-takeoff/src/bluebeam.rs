@@ -656,9 +656,18 @@ mod tests {
     #[test]
     fn a_date_is_read_in_the_columns_own_format() {
         let day = |y, m, d| crate::value::parse_date(&format!("{y:04}-{m:02}-{d:02}"));
-        assert_eq!(parse_formatted_date("12/25/2027", "MM/dd/yyyy"), day(2027, 12, 25));
-        assert_eq!(parse_formatted_date(" 2/9/2027 ", "MM/dd/yyyy"), day(2027, 2, 9));
-        assert_eq!(parse_formatted_date("25.12.27", "dd.MM.yy"), day(2027, 12, 25));
+        assert_eq!(
+            parse_formatted_date("12/25/2027", "MM/dd/yyyy"),
+            day(2027, 12, 25)
+        );
+        assert_eq!(
+            parse_formatted_date(" 2/9/2027 ", "MM/dd/yyyy"),
+            day(2027, 2, 9)
+        );
+        assert_eq!(
+            parse_formatted_date("25.12.27", "dd.MM.yy"),
+            day(2027, 12, 25)
+        );
         // Not a day, not the format's order, a two-digit year for a four-letter one.
         assert_eq!(parse_formatted_date("02/29/2027", "MM/dd/yyyy"), None);
         assert_eq!(parse_formatted_date("25/12/2027", "MM/dd/yyyy"), None);

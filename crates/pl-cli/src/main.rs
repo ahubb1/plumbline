@@ -10,7 +10,39 @@
 //! plumb run <commands.json>                         run a JSON command file (the test driver)
 //! plumb export <pdf> --csv out.csv | --xlsx out.xlsx | --xfdf out.xfdf
 //!                                                   the markups list, or the annotations
+//! plumb pages <pdf>                                 every page: label, size, rotation, fingerprint
+//! plumb pages <pdf> <op...> -o out.pdf              insert, delete, move, rotate, extract,
+//!                                                   replace, merge, split
+//! plumb outline <pdf> [<edit...> -o out.pdf]        the bookmark tree, or edit it
+//! plumb links <pdf>                                 every link and where it leads
+//! plumb flatten <pdf> -o out.pdf [--pages 1-3]      burn the markups into the pages
+//! plumb set create|add|list|search <set.plset> ...  a group of PDF files, searched together
 //! ```
+//!
+//! `plumb pages` takes its operations in order; each one's page numbers refer to the document
+//! as the operations before it left it. Pages are written `1-3,5`, `4-` (to the end), `last`
+//! or `all`:
+//!
+//! ```text
+//! insert-blank <at> [size=letter|a4|612x792|34x22in] [rotate=90] [count=N]
+//! insert-from <at> <file.pdf> [pages=1-2]     the inserted pages become pages <at>, <at>+1...
+//! delete <pages>
+//! move <pages> [to] <n>                       the first moved page becomes page <n>
+//! rotate <pages> <degrees>                    clockwise; 90, 180, 270 or -90
+//! extract <pages>                             keep only these, in this order
+//! replace <at> <file.pdf> [pages=1-2] [keep-markups]
+//! merge <file.pdf>                            append every page, with its bookmarks
+//! split <parts>|every=N                       last: one file per part, out-1.pdf, out-2.pdf
+//!                                             ({n} in the -o name is the part number)
+//! ```
+//!
+//! `plumb outline` edits are `add <path> <title> <page|none> [at=x,y]`, `rename <path>
+//! <title>`, `delete <path>`, `move <path> [to] <path>` and `dest <path> <page> [at=x,y]`;
+//! a path is dotted numbers from 1 (`2.1` is the first child of the second bookmark).
+//!
+//! Page operations and flatten rewrite the whole file (verified, then moved into place); a
+//! bookmark edit is appended. A signed file is refused for a rewrite unless
+//! `--invalidate-signatures` is given. `-o` may name the input itself.
 //!
 //! `plumb run` executes the steps of a command file (open, add, modify, delete, undo, redo,
 //! save, save_as, render, ...; the format is described in `pl_doc::script`) and prints one
@@ -47,6 +79,11 @@
 //!
 //! The synthetic test PDFs are written by pl-testkit's own `pl-fixtures` binary; the test
 //! generator is not part of this program.
+
+mod ranges;
+mod script_ext;
+mod set;
+mod structure;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -157,6 +194,86 @@ enum Command {
         #[arg(long, value_name = "SYSTEM", value_parser = ["imperial", "metric"])]
         units: Option<String>,
     },
+    /// List the pages, or insert, delete, move, rotate, extract, replace, merge and split them.
+    Pages {
+        pdf: PathBuf,
+        /// Operations, in order: insert-blank, insert-from, delete, move, rotate, extract,
+        /// replace, merge, split (see `plumb pages --help`). None: list the pages.
+        #[arg(value_name = "OP", allow_negative_numbers = true)]
+        ops: Vec<String>,
+        /// The file to write (may be the input). For split, the name of the parts: {n} is
+        /// the part number, or -1, -2... go before the extension.
+        #[arg(long, short, value_name = "FILE")]
+        output: Option<PathBuf>,
+        /// Go ahead with a signed file, invalidating its signatures.
+        #[arg(long)]
+        invalidate_signatures: bool,
+    },
+    /// Print the bookmark tree, or edit it: add, rename, delete, move, dest.
+    Outline {
+        pdf: PathBuf,
+        /// Edits, in order (paths are dotted numbers from 1, such as 2.1). None: print.
+        #[arg(value_name = "EDIT")]
+        edits: Vec<String>,
+        /// The file to write (may be the input).
+        #[arg(long, short, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+    /// List every link with where it leads. Nothing is opened or run.
+    Links { pdf: PathBuf },
+    /// Burn annotations into the page content.
+    Flatten {
+        pdf: PathBuf,
+        /// The file to write (may be the input).
+        #[arg(long, short, value_name = "FILE")]
+        output: PathBuf,
+        /// Only these pages (such as 1-3,5).
+        #[arg(long, value_name = "PAGES")]
+        pages: Option<String>,
+        /// What prints (the Print flag) rather than what shows on screen.
+        #[arg(long)]
+        print: bool,
+        /// Form fields too (they stop being fields).
+        #[arg(long)]
+        forms: bool,
+        /// Go ahead with a signed file, invalidating its signatures.
+        #[arg(long)]
+        invalidate_signatures: bool,
+    },
+    /// Sets: a .plset file naming a group of PDF files to list and search together.
+    #[command(subcommand)]
+    Set(SetCommand),
+}
+
+#[derive(Subcommand)]
+enum SetCommand {
+    /// Make a new set file, with any files given.
+    Create {
+        set: PathBuf,
+        files: Vec<PathBuf>,
+        /// The set's name.
+        #[arg(long, value_name = "TEXT")]
+        name: Option<String>,
+    },
+    /// Add PDF files to a set.
+    Add {
+        set: PathBuf,
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// List a set's files with their page counts.
+    List { set: PathBuf },
+    /// Find text in every file of a set. Exit code 1 when nothing is found.
+    Search {
+        set: PathBuf,
+        text: String,
+        /// Upper and lower case must match.
+        #[arg(long)]
+        match_case: bool,
+        /// Only match whole words.
+        #[arg(long)]
+        whole_word: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -236,6 +353,45 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 units: units.as_deref(),
             },
         ),
+        Command::Pages {
+            pdf,
+            ops,
+            output,
+            invalidate_signatures,
+        } => pages(
+            &mut out,
+            pdfium,
+            password,
+            pdf,
+            ops,
+            output.as_deref(),
+            *invalidate_signatures,
+        ),
+        Command::Outline { pdf, edits, output } => {
+            outline(&mut out, pdfium, password, pdf, edits, output.as_deref())
+        }
+        Command::Links { pdf } => links(&mut out, password, pdf),
+        Command::Flatten {
+            pdf,
+            output,
+            pages,
+            print,
+            forms,
+            invalidate_signatures,
+        } => flatten(
+            &mut out,
+            pdfium,
+            password,
+            pdf,
+            output,
+            &structure::FlattenArgs {
+                pages: pages.clone(),
+                print: *print,
+                forms: *forms,
+            },
+            *invalidate_signatures,
+        ),
+        Command::Set(command) => set_command(&mut out, pdfium, password, command),
     };
     match result {
         // A closed pipe (`plumb text x.pdf | head`) is not an error.
@@ -253,6 +409,14 @@ fn is_broken_pipe(error: &anyhow::Error) -> bool {
 /// Starts PDFium and a session that settles each document at open: a command answers
 /// everything at once and then exits.
 fn start(pdfium: Option<&Path>) -> Result<Session> {
+    Ok(Session::with_options(
+        backend(pdfium)?,
+        SessionOptions::complete(),
+    ))
+}
+
+/// Starts PDFium.
+fn backend(pdfium: Option<&Path>) -> Result<Arc<dyn RenderBackend>> {
     let explicit = match pdfium {
         Some(p) => {
             Some(std::path::absolute(p).with_context(|| format!("resolve {}", p.display()))?)
@@ -260,10 +424,7 @@ fn start(pdfium: Option<&Path>) -> Result<Session> {
         None => None,
     };
     let backend = PdfiumBackend::new(explicit.as_deref()).context("start PDFium")?;
-    Ok(Session::with_options(
-        Arc::new(backend),
-        SessionOptions::complete(),
-    ))
+    Ok(Arc::new(backend))
 }
 
 /// Starts PDFium and opens one file.
@@ -835,7 +996,16 @@ fn run_commands(
     commands: &Path,
     journal: Option<&Path>,
 ) -> Result<ExitCode> {
-    let script = Script::read(commands).with_context(|| format!("{}", commands.display()))?;
+    // A file with page, bookmark, flatten or set steps is run by `script_ext` (which hands the
+    // other steps to pl-doc); any other file goes to pl-doc as it is.
+    let plan = match std::fs::read_to_string(commands) {
+        Ok(json) => script_ext::plan(&json).with_context(|| format!("{}", commands.display()))?,
+        Err(_) => None,
+    };
+    let script = match plan {
+        Some(_) => None,
+        None => Some(Script::read(commands).with_context(|| format!("{}", commands.display()))?),
+    };
     let commands =
         std::path::absolute(commands).with_context(|| format!("resolve {}", commands.display()))?;
     let base = commands.parent().unwrap_or(Path::new("."));
@@ -845,16 +1015,280 @@ fn run_commands(
         session.set_journal_dir(Some(dir));
     }
     let mut host = CliHost { out, failed: None };
-    let report = pl_doc::script::run(&mut session, &script, base, &mut host)?;
+    let steps = match (&plan, &script) {
+        (Some(plan), _) => script_ext::run(&mut session, plan, base, &mut host)?,
+        (None, Some(script)) => pl_doc::script::run(&mut session, script, base, &mut host)?.steps,
+        (None, None) => unreachable!("one of the two is read"),
+    };
     if let Some(e) = host.failed {
         return Err(e.into());
     }
     writeln!(
         out,
         "{} step{} done",
-        report.steps,
-        if report.steps == 1 { "" } else { "s" }
+        steps,
+        if steps == 1 { "" } else { "s" }
     )?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plumb pages`: list the pages, or run page operations and write the result.
+fn pages(
+    out: &mut impl Write,
+    pdfium: Option<&Path>,
+    password: Option<&str>,
+    pdf: &Path,
+    words: &[String],
+    output: Option<&Path>,
+    invalidate_signatures: bool,
+) -> Result<ExitCode> {
+    let (ops, split) = structure::parse_page_ops(words)?;
+    let mut file = structure::open_pdf(pdf, password)?;
+    if ops.is_empty() && split.is_none() {
+        if output.is_some() {
+            bail!(
+                "no page operations to write: give some (delete 2, rotate 1 90...) or leave out -o"
+            );
+        }
+        structure::list_pages(out, file.document()?, pdf)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let Some(output) = output else {
+        bail!("give the file to write with -o (it may be the input)");
+    };
+    let backend = backend(pdfium)?;
+    let resolve = |p: &Path| p.to_path_buf();
+    let (doc, lines, notes) =
+        structure::apply_page_ops(file.document()?, &ops, &resolve, password)?;
+    for line in &lines {
+        writeln!(out, "{line}")?;
+    }
+    for note in &notes {
+        writeln!(out, "note: {note}")?;
+    }
+    let policy = structure::signature_policy(invalidate_signatures);
+    let warnings = structure::signature_warnings(&doc);
+    match split {
+        None => {
+            let n = doc.page_count();
+            structure::save_rewrite(&mut file, doc, output, policy, backend.as_ref(), password)?;
+            writeln!(
+                out,
+                "wrote {}: {n} page{}",
+                output.display(),
+                ranges::plural(n)
+            )?;
+        }
+        Some(spec) => {
+            let parts = spec.ranges(doc.page_count())?;
+            let pieces = doc.split(&parts)?;
+            for (k, ((part, _), range)) in pieces.into_iter().zip(&parts).enumerate() {
+                let path = structure::part_path(output, k + 1);
+                let n = part.page_count();
+                structure::save_new(part, &path, policy, backend.as_ref())?;
+                writeln!(
+                    out,
+                    "wrote {}: pages {}-{} ({n} page{})",
+                    path.display(),
+                    range.start + 1,
+                    range.end,
+                    ranges::plural(n)
+                )?;
+            }
+        }
+    }
+    for w in warnings {
+        writeln!(out, "{w}")?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plumb outline`: print the bookmarks, or edit them and write the result.
+fn outline(
+    out: &mut impl Write,
+    pdfium: Option<&Path>,
+    password: Option<&str>,
+    pdf: &Path,
+    words: &[String],
+    output: Option<&Path>,
+) -> Result<ExitCode> {
+    let edits = structure::parse_outline_edits(words)?;
+    let mut file = structure::open_pdf(pdf, password)?;
+    if edits.is_empty() {
+        if output.is_some() {
+            bail!("no bookmark edits to write: give some (add, rename, delete, move, dest) or leave out -o");
+        }
+        structure::list_outline(out, file.document()?)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let Some(output) = output else {
+        bail!("give the file to write with -o (it may be the input)");
+    };
+    let backend = backend(pdfium)?;
+    let (tree, lines) = structure::apply_outline_edits(file.document()?, &edits)?;
+    for line in &lines {
+        writeln!(out, "{line}")?;
+    }
+    structure::save_outline(&mut file, &tree, output, backend.as_ref(), password)?;
+    let n = tree.len();
+    writeln!(
+        out,
+        "wrote {}: {n} bookmark{}",
+        output.display(),
+        ranges::plural(n)
+    )?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plumb links`: every link with where it leads.
+fn links(out: &mut impl Write, password: Option<&str>, pdf: &Path) -> Result<ExitCode> {
+    let mut file = structure::open_pdf(pdf, password)?;
+    structure::list_links(out, file.document()?)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plumb flatten`: burn annotations in and write the result.
+fn flatten(
+    out: &mut impl Write,
+    pdfium: Option<&Path>,
+    password: Option<&str>,
+    pdf: &Path,
+    output: &Path,
+    args: &structure::FlattenArgs,
+    invalidate_signatures: bool,
+) -> Result<ExitCode> {
+    let mut file = structure::open_pdf(pdf, password)?;
+    let doc = file.document()?;
+    structure::check_permission(doc, true, "be flattened")?;
+    let options = structure::flatten_options(doc, args)?;
+    let (flat, report) = doc.flatten(&options)?;
+    let warnings = structure::signature_warnings(&flat);
+    let backend = backend(pdfium)?;
+    structure::save_rewrite(
+        &mut file,
+        flat,
+        output,
+        structure::signature_policy(invalidate_signatures),
+        backend.as_ref(),
+        password,
+    )?;
+    writeln!(out, "{}", structure::describe_flatten(&report))?;
+    writeln!(out, "wrote {}", output.display())?;
+    for w in warnings {
+        writeln!(out, "{w}")?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plumb set`: make, extend, list and search set files.
+fn set_command(
+    out: &mut impl Write,
+    pdfium: Option<&Path>,
+    password: Option<&str>,
+    command: &SetCommand,
+) -> Result<ExitCode> {
+    use set::SetFile;
+    match command {
+        SetCommand::Create { set, files, name } => {
+            if set.exists() {
+                bail!("{} already exists (use plumb set add)", set.display());
+            }
+            let mut s = SetFile::new(name.as_deref().unwrap_or_default());
+            for f in files {
+                if !s.add(f)? {
+                    writeln!(out, "already in the set: {}", f.display())?;
+                }
+            }
+            s.write(set)?;
+            writeln!(
+                out,
+                "wrote {}: {} file{}",
+                set.display(),
+                s.len(),
+                ranges::plural(s.len())
+            )?;
+        }
+        SetCommand::Add { set, files } => {
+            let mut s = SetFile::read(set)?;
+            let mut added = 0;
+            for f in files {
+                if s.add(f)? {
+                    added += 1;
+                } else {
+                    writeln!(out, "already in the set: {}", f.display())?;
+                }
+            }
+            s.write(set)?;
+            writeln!(
+                out,
+                "added {added}: {} has {} file{}",
+                set.display(),
+                s.len(),
+                ranges::plural(s.len())
+            )?;
+        }
+        SetCommand::List { set } => {
+            let s = SetFile::read(set)?;
+            if !s.set.name.is_empty() {
+                writeln!(out, "set: {}", s.set.name)?;
+            }
+            for (i, path) in s.resolved().into_iter().enumerate() {
+                let entry = s.shown(i, set);
+                let pages = structure::open_pdf(&path, password)
+                    .and_then(|mut f| Ok(f.document()?.page_count()));
+                match pages {
+                    Ok(n) => writeln!(out, "{}: {} ({n} page{})", i + 1, entry, ranges::plural(n))?,
+                    Err(e) => writeln!(out, "{}: {} (cannot be read: {e:#})", i + 1, entry)?,
+                }
+            }
+            writeln!(out, "{} file{}", s.len(), ranges::plural(s.len()))?;
+        }
+        SetCommand::Search {
+            set,
+            text,
+            match_case,
+            whole_word,
+        } => {
+            let s = SetFile::read(set)?;
+            let mut session = start(pdfium)?;
+            let options = SearchOptions {
+                match_case: *match_case,
+                whole_word: *whole_word,
+            };
+            let found = set::search(&mut session, &s, text, options, password)?;
+            for hit in &found.hits {
+                let b = hit.bounds;
+                writeln!(
+                    out,
+                    "{} page {}: [{} {} {} {}] {}",
+                    s.shown(hit.file, set),
+                    hit.page + 1,
+                    num(b[0], 2),
+                    num(b[1], 2),
+                    num(b[2], 2),
+                    num(b[3], 2),
+                    hit.text
+                )?;
+            }
+            for (path, why) in &found.failed {
+                writeln!(out, "warning: could not search {}: {why}", path.display())?;
+            }
+            let files: std::collections::BTreeSet<usize> =
+                found.hits.iter().map(|h| h.file).collect();
+            writeln!(
+                out,
+                "{} hit{} in {} of {} file{}",
+                found.hits.len(),
+                ranges::plural(found.hits.len()),
+                files.len(),
+                found.files,
+                ranges::plural(found.files)
+            )?;
+            if found.hits.is_empty() {
+                return Ok(ExitCode::from(1));
+            }
+        }
+    }
     Ok(ExitCode::SUCCESS)
 }
 

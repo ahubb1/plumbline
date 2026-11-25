@@ -197,6 +197,43 @@ impl DocSettings {
         Ok(())
     }
 
+    /// The settings after a page operation that moved the page at `i` to `map(i)` (`None` for
+    /// a page that is gone): each space and legend follows its page. A definition whose page
+    /// is gone is dropped and named in the returned list (`space "Room 1"`); a space whose
+    /// parent was dropped loses its parent.
+    pub fn remap_pages(&self, map: impl Fn(usize) -> Option<usize>) -> (DocSettings, Vec<String>) {
+        let mut out = self.clone();
+        let mut dropped = Vec::new();
+        out.legends.retain_mut(|l| match map(l.page) {
+            Some(p) => {
+                l.page = p;
+                true
+            }
+            None => {
+                dropped.push(format!("legend {:?}", l.title));
+                false
+            }
+        });
+        let mut gone = std::collections::HashSet::new();
+        out.spaces.retain_mut(|s| match map(s.page) {
+            Some(p) => {
+                s.page = p;
+                true
+            }
+            None => {
+                dropped.push(format!("space {:?}", s.name));
+                gone.insert(s.id.clone());
+                false
+            }
+        });
+        for s in &mut out.spaces {
+            if s.parent.as_ref().is_some_and(|p| gone.contains(p)) {
+                s.parent = None;
+            }
+        }
+        (out, dropped)
+    }
+
     /// The innermost space holding `p` on `page`: of the spaces that contain it, the one with
     /// the smallest area.
     pub fn space_at(&self, page: usize, p: Point) -> Option<&SpaceDef> {
@@ -605,6 +642,50 @@ mod tests {
         let mut bad = settings;
         bad.sequences.push(SequenceDef { step: 0, ..seq });
         assert!(bad.validate(1).unwrap_err().contains("step of 0"));
+    }
+
+    #[test]
+    fn spaces_and_legends_follow_their_pages() {
+        let space = |id: &str, page: usize, parent: Option<&str>| SpaceDef {
+            id: id.into(),
+            name: id.to_uppercase(),
+            page,
+            outline: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]],
+            parent: parent.map(String::from),
+        };
+        let settings = DocSettings {
+            spaces: vec![
+                space("wing", 1, None),
+                space("room", 2, Some("wing")),
+                space("hall", 0, None),
+            ],
+            legends: vec![LegendDef {
+                id: "leg".into(),
+                title: "Key".into(),
+                page: 2,
+                rect: [0.0, 0.0, 10.0, 10.0],
+                subjects: Vec::new(),
+                columns: Vec::new(),
+            }],
+            ..DocSettings::default()
+        };
+        assert!(settings.validate(3).is_ok());
+        // Page 0 moves to the end; page 1 is deleted.
+        let map = |p: usize| match p {
+            0 => Some(1),
+            2 => Some(0),
+            _ => None,
+        };
+        let (after, dropped) = settings.remap_pages(map);
+        assert_eq!(dropped, vec!["space \"WING\"".to_string()]);
+        let page_of = |id: &str| after.spaces.iter().find(|s| s.id == id).map(|s| s.page);
+        assert_eq!(page_of("hall"), Some(1));
+        assert_eq!(page_of("room"), Some(0));
+        assert_eq!(page_of("wing"), None);
+        let room = after.spaces.iter().find(|s| s.id == "room").unwrap();
+        assert_eq!(room.parent, None);
+        assert_eq!(after.legends[0].page, 0);
+        assert!(after.validate(2).is_ok(), "nothing stale is left");
     }
 
     #[test]

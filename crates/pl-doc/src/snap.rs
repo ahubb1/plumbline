@@ -190,7 +190,10 @@ fn markup_candidates(
         if (measured && !options.measurements) || (!measured && !options.markups) {
             continue;
         }
-        if !options.counts && a.measurement().is_some_and(|m| m.kind == MeasureKind::Count) {
+        if !options.counts
+            && a.measurement()
+                .is_some_and(|m| m.kind == MeasureKind::Count)
+        {
             continue;
         }
         let slot = usize::from(!measured);
@@ -236,7 +239,10 @@ pub fn snap(
         None => None,
     };
     // A point of a measurement outranks every content snap: measurements chain on.
-    if let Some(m) = markup.as_ref().filter(|m| m.kind == SnapKind::MeasureEndpoint) {
+    if let Some(m) = markup
+        .as_ref()
+        .filter(|m| m.kind == SnapKind::MeasureEndpoint)
+    {
         return SnapOutcome::Snapped(m.clone());
     }
     let content = match scene {

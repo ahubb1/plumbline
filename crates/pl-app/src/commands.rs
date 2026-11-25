@@ -87,6 +87,40 @@ pub enum Command {
     TakeoffLayout,
     /// Show the dialog that adds a formula column to the markups list.
     FormulaColumn,
+    /// Insert a blank page after the selected pages (or the page in view).
+    InsertBlankPage,
+    /// Ask for a PDF and insert its pages after the selected pages (or the page in view).
+    InsertPagesFromFile,
+    /// Delete the selected pages (or the page in view), after asking.
+    DeletePages,
+    /// Turn the selected pages (or the page in view) clockwise by this many degrees (a
+    /// multiple of 90; negative is anticlockwise). This changes the file, unlike
+    /// [`Command::RotateRight`], which turns only the view.
+    RotatePages(i32),
+    /// Ask for a file name and write the selected pages (or the page in view) to it.
+    ExtractPages,
+    /// Ask for a PDF and replace the selected pages with its first pages.
+    ReplacePages,
+    /// Show the dialog that builds a new document from several files.
+    CombineFiles,
+    /// Show the flatten dialog.
+    Flatten,
+    /// Show the print panel.
+    Print,
+    /// Back to where the view was before the last link or bookmark it followed.
+    NavigateBack,
+    /// Forward again after [`Command::NavigateBack`].
+    NavigateForward,
+    /// Add a bookmark to the place in view.
+    AddBookmark,
+    /// Ask for a drawing set and open it in the Set panel.
+    OpenSet,
+    /// Ask where to write a new drawing set made of the open documents.
+    NewSet,
+    /// The next sheet of the open drawing set.
+    NextSheet,
+    /// The previous sheet of the open drawing set.
+    PreviousSheet,
 }
 
 /// Lining up, spacing out and restacking the selected markups.
@@ -153,6 +187,12 @@ pub const BRING_TO_FRONT: KeyboardShortcut = KeyboardShortcut::new(CTRL_SHIFT, K
 pub const SEND_TO_BACK: KeyboardShortcut = KeyboardShortcut::new(CTRL_SHIFT, Key::OpenBracket);
 pub const BRING_FORWARD: KeyboardShortcut = KeyboardShortcut::new(CTRL, Key::CloseBracket);
 pub const SEND_BACKWARD: KeyboardShortcut = KeyboardShortcut::new(CTRL, Key::OpenBracket);
+pub const PRINT: KeyboardShortcut = KeyboardShortcut::new(CTRL, Key::P);
+const ALT: Modifiers = Modifiers::ALT;
+pub const NAVIGATE_BACK: KeyboardShortcut = KeyboardShortcut::new(ALT, Key::ArrowLeft);
+pub const NAVIGATE_FORWARD: KeyboardShortcut = KeyboardShortcut::new(ALT, Key::ArrowRight);
+pub const NEXT_SHEET: KeyboardShortcut = KeyboardShortcut::new(ALT, Key::PageDown);
+pub const PREVIOUS_SHEET: KeyboardShortcut = KeyboardShortcut::new(ALT, Key::PageUp);
 /// Turns snapping to drawing content on and off.
 pub const SNAP_KEY: Key = Key::S;
 
@@ -167,6 +207,11 @@ pub fn bindings() -> Vec<Binding> {
     };
     let key = |k| KeyboardShortcut::new(Modifiers::NONE, k);
     let mut all = vec![
+        b(NAVIGATE_BACK, Command::NavigateBack, true),
+        b(NAVIGATE_FORWARD, Command::NavigateForward, true),
+        b(NEXT_SHEET, Command::NextSheet, false),
+        b(PREVIOUS_SHEET, Command::PreviousSheet, false),
+        b(PRINT, Command::Print, false),
         b(REDO_ALT, Command::Redo, true),
         b(SAVE_AS, Command::SaveAs, false),
         b(SELECT_ALL_MARKUPS, Command::SelectAllMarkups, true),

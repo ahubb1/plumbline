@@ -1011,7 +1011,9 @@ fn key_object(a: &Annotation, key: &str, ctx: &Context<'_>) -> Result<Option<Obj
         // Revu's radius: a point on the circle, the centre, the point again (a whole circle).
         "Vertices" if file_kind == Some(AnnotKind::Polygon) && a.kind == AnnotKind::Line => {
             match &a.geometry {
-                Geometry::Line { a: centre, b: edge } => Some(points_object(&[*edge, *centre, *edge])),
+                Geometry::Line { a: centre, b: edge } => {
+                    Some(points_object(&[*edge, *centre, *edge]))
+                }
                 _ => None,
             }
         }
@@ -1587,8 +1589,7 @@ impl AnnotSet {
                 !d.appearance && d.keys.iter().all(|k| COUNT_PATCHED_KEYS.contains(k))
             });
             if !markers_kept
-                && a
-                    .measurement()
+                && a.measurement()
                     .is_some_and(|m| m.kind == MeasureKind::Count)
             {
                 let (change, is_new) =

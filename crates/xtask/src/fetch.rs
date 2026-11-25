@@ -283,8 +283,12 @@ mod tests {
             PDFIUM_8125.archive_sha256,
             "9a964261760cff52570aabf038ab346d3a5034dd8b30d0d5fe8861235d356b8b"
         );
-        assert!(PDFIUM_8125.url.starts_with("https://github.com/bblanchon/pdfium-binaries/"));
-        assert!(PDFIUM_8125.url.ends_with("/chromium/8125/pdfium-win-x64.tgz"));
+        assert!(PDFIUM_8125
+            .url
+            .starts_with("https://github.com/bblanchon/pdfium-binaries/"));
+        assert!(PDFIUM_8125
+            .url
+            .ends_with("/chromium/8125/pdfium-win-x64.tgz"));
         assert_eq!(PDFIUM_8125.dll_sha256.len(), 64);
         let l = Layout::in_workspace();
         assert!(l.install_dir().ends_with("vendor/pdfium/8125"));
@@ -305,17 +309,27 @@ mod tests {
             Ok(())
         };
 
-        assert_eq!(fetch(&layout, &release, false, &download).unwrap(), Outcome::Downloaded);
+        assert_eq!(
+            fetch(&layout, &release, false, &download).unwrap(),
+            Outcome::Downloaded
+        );
         assert_eq!(calls.get(), 1);
         assert_eq!(std::fs::read(layout.dll()).unwrap(), DLL_BYTES);
-        assert!(layout.install_dir().join("include").join("fpdfview.h").is_file());
+        assert!(layout
+            .install_dir()
+            .join("include")
+            .join("fpdfview.h")
+            .is_file());
         assert!(layout.install_dir().join("LICENSE").is_file());
         assert!(layout.archive().is_file());
         assert!(!layout.archive().with_extension("tgz.part").exists());
         assert!(!layout.vendor.join("pdfium").join("8125.unpacking").exists());
 
         // Second run: present and valid, so neither download nor unpack happens.
-        assert_eq!(fetch(&layout, &release, false, &never).unwrap(), Outcome::AlreadyPresent);
+        assert_eq!(
+            fetch(&layout, &release, false, &never).unwrap(),
+            Outcome::AlreadyPresent
+        );
         assert_eq!(calls.get(), 1);
     }
 
@@ -337,9 +351,15 @@ mod tests {
         let text = format!("{err:#}");
         assert!(text.contains("SHA-256 MISMATCH"), "{text}");
         assert!(text.contains(release.archive_sha256), "{text}");
-        assert!(!layout.archive().exists(), "a bad download must not be cached");
+        assert!(
+            !layout.archive().exists(),
+            "a bad download must not be cached"
+        );
         assert!(!layout.archive().with_extension("tgz.part").exists());
-        assert!(!layout.install_dir().exists(), "a bad download must not be unpacked");
+        assert!(
+            !layout.install_dir().exists(),
+            "a bad download must not be unpacked"
+        );
     }
 
     #[test]
@@ -352,7 +372,10 @@ mod tests {
             std::fs::write(dest, b"partial")?;
             bail!("curl exited with 22")
         };
-        let text = format!("{:#}", fetch(&layout, &release, false, &download).unwrap_err());
+        let text = format!(
+            "{:#}",
+            fetch(&layout, &release, false, &download).unwrap_err()
+        );
         assert!(text.contains("curl exited with 22"), "{text}");
         assert!(!layout.archive().exists());
         assert!(!layout.archive().with_extension("tgz.part").exists());
@@ -392,7 +415,10 @@ mod tests {
             std::fs::copy(&source, dest)?;
             Ok(())
         };
-        assert_eq!(fetch(&layout, &release, false, &download).unwrap(), Outcome::Downloaded);
+        assert_eq!(
+            fetch(&layout, &release, false, &download).unwrap(),
+            Outcome::Downloaded
+        );
         verify_file_sha256(&layout.archive(), release.archive_sha256).unwrap();
     }
 
@@ -409,7 +435,10 @@ mod tests {
         fetch(&layout, &release, false, &download).unwrap();
         let marker = layout.install_dir().join("stale.txt");
         std::fs::write(&marker, b"x").unwrap();
-        assert_eq!(fetch(&layout, &release, true, &never).unwrap(), Outcome::UnpackedFromCache);
+        assert_eq!(
+            fetch(&layout, &release, true, &never).unwrap(),
+            Outcome::UnpackedFromCache
+        );
         assert!(!marker.exists());
         validate_install(&layout.install_dir(), &release).unwrap();
     }
@@ -425,7 +454,10 @@ mod tests {
             std::fs::copy(&source, dest)?;
             Ok(())
         };
-        let text = format!("{:#}", fetch(&layout, &release, false, &download).unwrap_err());
+        let text = format!(
+            "{:#}",
+            fetch(&layout, &release, false, &download).unwrap_err()
+        );
         assert!(text.contains("SHA-256 MISMATCH"), "{text}");
         assert!(!layout.install_dir().exists());
         assert!(!layout.vendor.join("pdfium").join("8125.unpacking").exists());
@@ -436,7 +468,10 @@ mod tests {
     fn vendored_install_matches_the_pin() {
         let layout = Layout::in_workspace();
         if !layout.dll().is_file() {
-            eprintln!("skipped: {} is absent (run fetch-pdfium)", layout.dll().display());
+            eprintln!(
+                "skipped: {} is absent (run fetch-pdfium)",
+                layout.dll().display()
+            );
             return;
         }
         validate_install(&layout.install_dir(), &PDFIUM_8125).unwrap();

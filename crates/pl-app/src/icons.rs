@@ -83,6 +83,8 @@ pub enum Icon {
     Count,
     /// Space: a room outline with a name line.
     Space,
+    /// Link: two rounded links of a chain, overlapping.
+    Link,
 }
 
 /// Paints an icon centred in `rect`.
@@ -662,6 +664,25 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, stroke: Stroke) {
                 c
             };
             line(start, pos2(c.x + d, c.y - d));
+        }
+        Icon::Link => {
+            // Two links of a chain: slanted capsules, overlapping in the middle.
+            let d = egui::vec2(0.8, -0.6);
+            let n = egui::vec2(0.6, 0.8);
+            let (half, w) = (r * 0.55, r * 0.42);
+            for shift in [-0.5_f32, 0.5] {
+                let centre = c + d * (shift * r * 1.15);
+                let mut points = Vec::with_capacity(20);
+                for i in 0..=9 {
+                    let t = std::f32::consts::PI * (-0.5 + i as f32 / 9.0);
+                    points.push(centre + d * half + (d * t.cos() + n * t.sin()) * w);
+                }
+                for i in 0..=9 {
+                    let t = std::f32::consts::PI * (0.5 + i as f32 / 9.0);
+                    points.push(centre - d * half + (d * t.cos() + n * t.sin()) * w);
+                }
+                painter.add(egui::Shape::closed_line(points, stroke));
+            }
         }
         Icon::Count => {
             for (dx, dy) in [(-0.7_f32, 0.55_f32), (0.7, 0.55), (0.0, -0.65)] {

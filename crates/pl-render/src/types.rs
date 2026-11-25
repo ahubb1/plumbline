@@ -156,6 +156,105 @@ impl TileRequest {
     }
 }
 
+/// What a [`WindowRequest`] draws besides the page content. The print path uses it
+/// ([`crate::print`]); the screen path keeps [`RenderOptions`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct WindowOptions {
+    /// Draw annotations (other than form-field widgets) from their own appearance streams.
+    pub annotations: bool,
+    /// Draw form-field widgets (with their values). When off, every widget on the page is
+    /// left out for the duration of the request.
+    pub form_fields: bool,
+    /// Apply the print rules to annotation flags (ISO 32000 12.5.3): an annotation without the
+    /// `Print` flag is left out, and one with `Print` and `NoView` is drawn even though the
+    /// screen does not show it. When off, annotations are drawn as on screen.
+    pub print_flags: bool,
+}
+
+impl Default for WindowOptions {
+    fn default() -> Self {
+        WindowOptions {
+            annotations: true,
+            form_fields: true,
+            print_flags: false,
+        }
+    }
+}
+
+/// Request for a window of a page drawn at an arbitrary pixel size and with an extra
+/// rotation: the building block of banded printing ([`crate::print`]).
+///
+/// The page is drawn, `/Rotate` applied and then `rotation` more degrees clockwise, so that its
+/// crop box fills exactly `size` pixels (the two axes may scale differently, for a printer
+/// whose horizontal and vertical resolutions differ). Of that image only `window`
+/// (`[x, y, width, height]`, in its pixels) is rendered and returned. Like a tile, the window
+/// is placed with origin offsets, so a window is pixel-for-pixel the same as the matching part
+/// of the whole image rendered in one go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct WindowRequest {
+    pub doc: DocId,
+    pub page: u32,
+    /// Extra clockwise rotation in degrees, on top of `/Rotate`: 0, 90, 180 or 270.
+    pub rotation: i32,
+    /// The pixel size of the whole page image, after both rotations.
+    pub size: [u32; 2],
+    /// `[x, y, width, height]` of the part to render, inside `size`.
+    pub window: [u32; 4],
+    pub options: WindowOptions,
+}
+
+/// The largest page image a [`WindowRequest`] may describe, per side (PDFium takes the size as
+/// a C `int` and adds offsets to it).
+pub const MAX_IMAGE_SIDE: u32 = i32::MAX as u32 / 2;
+
+impl WindowRequest {
+    /// Checks the request's numbers and returns the extra rotation.
+    pub fn validate(&self) -> Result<Rotation, RenderError> {
+        let rotation = Rotation::from_degrees(self.rotation).ok_or_else(|| {
+            RenderError::InvalidRequest(format!(
+                "the rotation must be a multiple of 90 degrees, got {}",
+                self.rotation
+            ))
+        })?;
+        let [w, h] = self.size;
+        if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
+            return Err(RenderError::TooLarge {
+                width: w as u64,
+                height: h as u64,
+            });
+        }
+        let [x, y, ww, wh] = self.window;
+        check_bitmap_size(ww, wh)?;
+        if x as u64 + ww as u64 > w as u64 || y as u64 + wh as u64 > h as u64 {
+            return Err(RenderError::InvalidRequest(format!(
+                "the window {:?} is outside the {w} x {h} px page image",
+                self.window
+            )));
+        }
+        Ok(rotation)
+    }
+}
+
+/// The reply to a [`WindowRequest`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowReply {
+    /// The window's pixels, `window[2] x window[3]`.
+    pub bitmap: Bitmap,
+    /// The pixel memory the backend held at its peak while rendering this window, in bytes
+    /// (its scratch bitmap plus the reply). At most [`window_scratch_bound`].
+    pub scratch_bytes: u64,
+}
+
+/// The most pixel memory a backend may hold for one `width x height` window: a scratch bitmap
+/// with the [`TILE_GUTTER`](crate::TILE_GUTTER) before and the
+/// [`WINDOW_TRAILING_GUTTER`](crate::pdfium::WINDOW_TRAILING_GUTTER) after it on each axis,
+/// plus the reply itself.
+pub fn window_scratch_bound(width: u32, height: u32) -> u64 {
+    let g = (crate::pdfium::TILE_GUTTER + crate::pdfium::WINDOW_TRAILING_GUTTER) as u64;
+    let (w, h) = (width as u64, height as u64);
+    ((w + g) * (h + g) + w * h) * 4
+}
+
 /// An RGBA8 image: row-major, top row first, no padding (`stride = width * 4`), alpha always 255.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bitmap {
@@ -403,6 +502,8 @@ pub enum Request {
         /// `[x0, y0, x1, y1]` in page space; any two opposite corners.
         rect: RectArray,
     },
+    /// A window of a page drawn at any pixel size and extra rotation (the print path).
+    RenderWindow(WindowRequest),
 }
 
 /// Every reply a backend sends.
@@ -419,6 +520,7 @@ pub enum Reply {
     Hits(Vec<SearchHit>),
     Outline(Vec<OutlineItem>),
     Annotations(Vec<AnnotInfo>),
+    Window(WindowReply),
 }
 
 /// Errors a backend reports. Serialisable like everything else on the wire.

@@ -213,7 +213,10 @@ fn kind_name(a: &Annotation) -> String {
     }
     // A count is a Count whatever annotation carries its items (Ink, Revu's PolygonCount
     // Polygons, ...).
-    if a.measure.as_ref().is_some_and(|m| m.kind == MeasureKind::Count) {
+    if a.measure
+        .as_ref()
+        .is_some_and(|m| m.kind == MeasureKind::Count)
+    {
         return "Count".to_string();
     }
     match &a.kind {
@@ -682,9 +685,11 @@ impl Table {
         let units = self.units;
         // A formula's height is not known until the formulas run: Wall Area is filled then
         // ([`Table::recalculate`]), never from the last pass's value.
-        let height = self
-            .height_column
-            .filter(|i| self.custom.get(*i).is_some_and(|c| c.kind != ColumnType::Formula));
+        let height = self.height_column.filter(|i| {
+            self.custom
+                .get(*i)
+                .is_some_and(|c| c.kind != ColumnType::Formula)
+        });
         let height_unit = self.height_unit;
         for row in &mut self.rows {
             let h = height

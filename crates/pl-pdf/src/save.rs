@@ -75,6 +75,61 @@ pub struct SaveReport {
     pub replace: ReplaceMethod,
 }
 
+/// What a full rewrite may do to digital signatures (every rewrite invalidates them).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SignaturePolicy {
+    /// Refuse with [`PdfError::SignaturesWouldBreak`] when the document is signed.
+    #[default]
+    Refuse,
+    /// The user has been warned and agreed: go ahead.
+    Invalidate,
+}
+
+impl PdfDocument {
+    /// Save this document as a new file at `dest` (an extracted or split part, a merge): the
+    /// full rewrite, verified, then moved into place (replacing `dest` if it exists). The
+    /// verification re-opens the file without a password, so a document that keeps an
+    /// encryption with a non-empty user password must be saved through
+    /// [`PdfFile::save_restructured_as`] instead.
+    pub fn save_new(
+        self,
+        dest: &Path,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+    ) -> Result<SaveReport> {
+        PdfFile::detached(dest, self).save_restructured_new(dest, options, signatures, None)
+    }
+
+    /// As [`PdfDocument::save_new`], with a caller-supplied check on the temporary file.
+    pub fn save_new_checked(
+        self,
+        dest: &Path,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+        check: ExternalCheck<'_>,
+    ) -> Result<SaveReport> {
+        PdfFile::detached(dest, self).save_restructured_new(dest, options, signatures, Some(check))
+    }
+}
+
+impl PdfFile {
+    fn save_restructured_new(
+        &mut self,
+        dest: &Path,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+        external: Option<ExternalCheck<'_>>,
+    ) -> Result<SaveReport> {
+        let document = self.loaded.as_ref().expect("detached holds a document");
+        let fields = document.signatures().descriptions();
+        if signatures == SignaturePolicy::Refuse && !fields.is_empty() {
+            return Err(PdfError::SignaturesWouldBreak { fields });
+        }
+        let edits = document.edit();
+        self.save(SaveKind::Full, dest, &edits, options, external)
+    }
+}
+
 /// A further check a caller runs on the temporary file after pl-pdf's own verification and
 /// before the destination is replaced. It gets the temporary file's path and what the file
 /// must contain. An error stops the save with the original untouched, like any other
@@ -184,6 +239,93 @@ impl PdfFile {
         check: ExternalCheck<'_>,
     ) -> Result<SaveReport> {
         self.save(SaveKind::Full, dest, edits, options, Some(check))
+    }
+
+    /// Save a restructured document (a page operation, an outline rewrite, a flatten: anything
+    /// derived in memory from this file's document) over this file, with the full
+    /// rewrite and the usual verify-then-replace tail.
+    ///
+    /// A rewrite invalidates every digital signature. With [`SignaturePolicy::Refuse`] the save
+    /// fails with [`PdfError::SignaturesWouldBreak`] when this file or `document` is signed,
+    /// before anything is written; pass [`SignaturePolicy::Invalidate`] once the user has
+    /// agreed.
+    ///
+    /// On success the handle holds the verified re-parse. On failure it keeps the document it
+    /// had, so earlier edit sets stay valid.
+    pub fn save_restructured(
+        &mut self,
+        document: PdfDocument,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+    ) -> Result<SaveReport> {
+        let dest = self.path().to_path_buf();
+        self.save_restructured_inner(&dest, document, options, signatures, None)
+    }
+
+    /// As [`PdfFile::save_restructured`], with a caller-supplied check on the temporary file
+    /// (see [`ExternalCheck`]).
+    pub fn save_restructured_checked(
+        &mut self,
+        document: PdfDocument,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+        check: ExternalCheck<'_>,
+    ) -> Result<SaveReport> {
+        let dest = self.path().to_path_buf();
+        self.save_restructured_inner(&dest, document, options, signatures, Some(check))
+    }
+
+    /// As [`PdfFile::save_restructured`], writing to another path; this handle and its file
+    /// are left as they were.
+    pub fn save_restructured_as(
+        &mut self,
+        dest: &Path,
+        document: PdfDocument,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+    ) -> Result<SaveReport> {
+        self.save_restructured_inner(dest, document, options, signatures, None)
+    }
+
+    /// As [`PdfFile::save_restructured_as`], with a caller-supplied check.
+    pub fn save_restructured_as_checked(
+        &mut self,
+        dest: &Path,
+        document: PdfDocument,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+        check: ExternalCheck<'_>,
+    ) -> Result<SaveReport> {
+        self.save_restructured_inner(dest, document, options, signatures, Some(check))
+    }
+
+    fn save_restructured_inner(
+        &mut self,
+        dest: &Path,
+        document: PdfDocument,
+        options: &SaveOptions,
+        signatures: SignaturePolicy,
+        external: Option<ExternalCheck<'_>>,
+    ) -> Result<SaveReport> {
+        let mut fields = document.signatures().descriptions();
+        for f in self.document()?.signatures().descriptions() {
+            if !fields.contains(&f) {
+                fields.push(f);
+            }
+        }
+        if signatures == SignaturePolicy::Refuse && !fields.is_empty() {
+            return Err(PdfError::SignaturesWouldBreak { fields });
+        }
+        let edits = document.edit();
+        let previous = self.loaded.replace(document);
+        let resume = self.resume;
+        let result = self.save(SaveKind::Full, dest, &edits, options, external);
+        if self.loaded.is_none() {
+            // Failed, or written elsewhere: the handle goes back to the file's own document.
+            self.loaded = previous;
+            self.resume = resume;
+        }
+        result
     }
 
     fn save(
@@ -357,7 +499,7 @@ fn prepare_incremental(
     inc
 }
 
-fn prepare_full(
+pub(crate) fn prepare_full(
     mut doc: Document,
     resolved: ResolvedEdits,
 ) -> Result<(Document, lopdf::SaveOptions)> {

@@ -532,7 +532,9 @@ fn finish(state: &mut ToolState, view: &dyn DocView, out: &mut Vec<Intent>) {
         // covers (one that starts in a viewport and ends outside it, on a page with no scale
         // of its own) is not made at full size; the tool asks for a scale instead.
         tool if needs_scale(tool) && scale_missing(view, g.page, &g.points) => {
-            out.push(Intent::RequestMeasure(MeasureRequest::NoScale { page: g.page }));
+            out.push(Intent::RequestMeasure(MeasureRequest::NoScale {
+                page: g.page,
+            }));
         }
         ToolKind::Volume if state.preset.measure_preset().depth.is_none() => {
             let (_, spec) = scale_at(state, view, g.page, &g.points);

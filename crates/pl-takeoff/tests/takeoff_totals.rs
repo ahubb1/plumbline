@@ -87,7 +87,11 @@ fn csv_totals_write_a_subtotal_per_group_and_a_total() {
     let table = imperial(&set, None);
     let mut layout = showing(
         &schema,
-        &[Builtin::Subject.into(), Builtin::Length.into(), Builtin::Kind.into()],
+        &[
+            Builtin::Subject.into(),
+            Builtin::Length.into(),
+            Builtin::Kind.into(),
+        ],
     );
     layout.group = vec![SortKey::asc(Builtin::Subject)];
     let view = View::of(&table, &layout);
@@ -118,10 +122,7 @@ fn csv_totals_write_a_subtotal_per_group_and_a_total() {
     assert!(csv.ends_with("Total,120.00,\r\n"), "{csv}");
 
     // A summed first column: the label goes in the first column that is not summed.
-    let layout = showing(
-        &schema,
-        &[Builtin::Length.into(), Builtin::Subject.into()],
-    );
+    let layout = showing(&schema, &[Builtin::Length.into(), Builtin::Subject.into()]);
     let view = View::of(&table, &layout);
     let csv = to_csv(&table, &view, &layout, &options);
     assert!(csv.ends_with("120.00,Total\r\n"), "{csv}");
@@ -149,7 +150,13 @@ fn takeoff_layout_shows_angle_radius_diameter_and_base_area_and_volumes_stay_out
     };
     // A 20 x 20 ft area (400 sq ft) and a 20 x 20 ft slab 3 ft deep.
     let area = set
-        .add(Annotation::measure_area(0, square(0.0), vec![], eng(), &og()))
+        .add(Annotation::measure_area(
+            0,
+            square(0.0),
+            vec![],
+            eng(),
+            &og(),
+        ))
         .unwrap();
     let slab = set
         .add(Annotation::measure_volume(
@@ -206,7 +213,10 @@ fn takeoff_layout_shows_angle_radius_diameter_and_base_area_and_volumes_stay_out
     }
     assert!(table.is_summed(&Builtin::BaseArea.into()));
     assert_eq!(table.heading(&Builtin::Diameter.into()), "Diameter (ft)");
-    assert_eq!(table.heading(&Builtin::BaseArea.into()), "Base Area (sq ft)");
+    assert_eq!(
+        table.heading(&Builtin::BaseArea.into()),
+        "Base Area (sq ft)"
+    );
     assert_eq!(table.heading(&Builtin::Angle.into()), "Angle (\u{b0})");
 
     let cell = |id, b: Builtin| table.value(table.row_of(id).unwrap(), &b.into());
@@ -299,7 +309,9 @@ fn a_count_is_one_row_with_its_item_total_and_type_count() {
         .add(count(0, &[10.0], CountSymbol::Ring, "Switches"))
         .unwrap();
     // A reply to an item of the count is a reply to the count's row.
-    let reply = set.add_reply(&second, "two of these are spares", &og()).unwrap();
+    let reply = set
+        .add_reply(&second, "two of these are spares", &og())
+        .unwrap();
 
     assert_eq!(
         count_group_key(set.get(&first).unwrap()),
@@ -322,7 +334,10 @@ fn a_count_is_one_row_with_its_item_total_and_type_count() {
     assert_eq!(r.members, vec![second.clone(), third.clone()]);
     assert_eq!(r.count, Some(3.0));
     assert_eq!(r.kind_name, "Count");
-    assert_eq!(table.value(row, &Builtin::Kind.into()), Value::text("Count"));
+    assert_eq!(
+        table.value(row, &Builtin::Kind.into()),
+        Value::text("Count")
+    );
     // The row covers every item.
     assert!(r.x <= 10.0 && r.x + r.width >= 400.0, "{} {}", r.x, r.width);
     assert_eq!(r.children, vec![table.row_of(&reply).unwrap()]);

@@ -206,6 +206,15 @@ pub trait RenderBackend: Send + Sync {
             _ => Err(RenderError::UnexpectedReply),
         }
     }
+
+    /// Renders a window of a page drawn at any size and extra rotation (see
+    /// [`WindowRequest`]); the print path's band render.
+    fn render_window(&self, request: WindowRequest) -> Result<WindowReply, RenderError> {
+        match self.call(Request::RenderWindow(request))? {
+            Reply::Window(w) => Ok(w),
+            _ => Err(RenderError::UnexpectedReply),
+        }
+    }
 }
 
 impl<T: RenderBackend + ?Sized> RenderBackend for std::sync::Arc<T> {

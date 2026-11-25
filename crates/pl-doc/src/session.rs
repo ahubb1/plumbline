@@ -214,6 +214,8 @@ pub struct Document {
     /// The save or load running on a worker thread (see `background.rs`).
     pub(crate) flight: Option<crate::background::Flight>,
     pub(crate) next_ticket: u64,
+    /// The working copy of structural edits and their undo history (see `structure.rs`).
+    pub(crate) structure: crate::structure::StructState,
 }
 
 /// A freshly opened render mirror, before a document has taken it.
@@ -480,8 +482,14 @@ impl Document {
     /// other than 1. Call it once lopdf has the file loaded for an edit, to settle the files
     /// [`UserUnitPolicy::Scan`] could not read.
     pub fn refresh_user_units(&mut self) -> Result<bool> {
-        let units: Vec<f64> = match &self.origin {
-            Origin::File(_) => {
+        let working_units = self.structure.working.as_ref().map(|w| {
+            w.doc
+                .pages()
+                .map(|pages| pages.iter().map(|p| p.user_unit).collect::<Vec<f64>>())
+        });
+        let units: Vec<f64> = match (&self.origin, working_units) {
+            (_, Some(units)) => units?,
+            (Origin::File(_), None) => {
                 let was_loaded = self.pdf_is_loaded();
                 let file = self.pdf()?;
                 let units = file
@@ -493,7 +501,7 @@ impl Document {
                 }
                 units?
             }
-            Origin::Memory { bytes, .. } => {
+            (Origin::Memory { bytes, .. }, None) => {
                 PdfDocument::from_bytes(bytes.to_vec(), self.password.as_deref())?
                     .pages()?
                     .iter()
@@ -583,6 +591,11 @@ impl Document {
     }
 
     fn take_probe_outcome(&mut self, outcome: ProbeOutcome, tell_backend: bool) -> bool {
+        if self.structure.working.is_some() {
+            // The probe read the file; the pages are the working copy's, whose units were
+            // set from it by the structural step.
+            return false;
+        }
         match outcome {
             Ok(Some(units)) => match self.apply_user_units(&units, tell_backend) {
                 Ok(changed) => changed,
@@ -669,7 +682,7 @@ impl Document {
         self.refuse_while_saving()?;
         let new = open_mirror(
             self.backend.as_ref(),
-            &self.origin,
+            &self.display_origin(),
             self.password.as_deref(),
             appended,
         )?;
@@ -727,6 +740,29 @@ impl Document {
                 Err(why) if !self.exact[i] => self.mark_unreadable(i, &why),
                 Err(_) => {}
             }
+        }
+    }
+
+    /// Makes `new` the display of a document whose pages may all have changed (a structural
+    /// step): no page keeps its old geometry, the pages take `units` (left alone when empty),
+    /// and what the store hides is hidden again. The mirror the document had is closed.
+    pub(crate) fn adopt_fresh_mirror(&mut self, new: NewMirror, units: &[f64]) {
+        if !self.suspended {
+            let _ = self.backend.close(self.render);
+        }
+        // Nothing of the old page list is carried over, even where a size matches.
+        self.pages.clear();
+        self.exact.clear();
+        self.adopt_mirror(new);
+        if !units.is_empty() {
+            if let Err(e) = self.apply_user_units(units, true) {
+                self.warnings
+                    .push(format!("/UserUnit could not be applied: {e}"));
+            }
+        }
+        self.reapply_hidden();
+        if self.open_mode == OpenMode::Complete {
+            self.load_all_geometry();
         }
     }
 
@@ -1008,6 +1044,9 @@ impl Document {
     }
 
     fn scene_source(&self) -> Result<SceneSource> {
+        if let Some(working) = &self.structure.working {
+            return Ok(SceneSource::new(working.bytes.clone()));
+        }
         match &self.origin {
             Origin::Memory { bytes, .. } => Ok(SceneSource::new(bytes.clone())),
             Origin::File(path) => Ok(SceneSource::new(Arc::new(map_file(path)?))),
@@ -1414,6 +1453,7 @@ impl Session {
             layers: None,
             flight: None,
             next_ticket: 0,
+            structure: crate::structure::StructState::default(),
         };
         match (self.options.user_unit, self.options.open) {
             (UserUnitPolicy::Never, _) => {}
@@ -1506,6 +1546,34 @@ impl Session {
             }
         }
         self.document_mut(id)?.start_save_as(dest)
+    }
+
+    /// [`Document::apply_structure`] for a document of this session: a page operation,
+    /// bookmark, link or flatten command as one undo step (see [`crate::structure`]).
+    pub fn apply_structure(
+        &mut self,
+        id: DocumentId,
+        command: crate::structure::StructCommand,
+        signatures: pl_pdf::SignaturePolicy,
+    ) -> Result<crate::structure::StructureOutcome> {
+        self.document_mut(id)?.apply_structure(command, signatures)
+    }
+
+    /// [`Document::extract_to`] for a document of this session, refusing a destination that is
+    /// the file of an open document.
+    pub fn extract_pages(
+        &mut self,
+        id: DocumentId,
+        pages: &[u32],
+        dest: impl AsRef<Path>,
+        signatures: pl_pdf::SignaturePolicy,
+    ) -> Result<pl_pdf::SaveReport> {
+        let dest = dest.as_ref();
+        if self.find_by_path(dest).is_some() {
+            let path = std::path::absolute(dest).unwrap_or_else(|_| dest.to_path_buf());
+            return Err(DocError::OpenElsewhere { path });
+        }
+        self.document_mut(id)?.extract_to(pages, dest, signatures)
     }
 
     pub fn document(&self, id: DocumentId) -> Result<&Document> {

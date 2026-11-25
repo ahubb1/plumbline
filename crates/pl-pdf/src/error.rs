@@ -93,6 +93,15 @@ pub enum PdfError {
 
     #[error("save stopped at injected fail point {0:?}")]
     InjectedFailure(FailPoint),
+
+    #[error("{0}")]
+    InvalidOperation(String),
+
+    #[error(
+        "a full rewrite would invalidate the document's digital signatures ({}); confirm to go on",
+        fields.join(", ")
+    )]
+    SignaturesWouldBreak { fields: Vec<String> },
 }
 
 impl PdfError {

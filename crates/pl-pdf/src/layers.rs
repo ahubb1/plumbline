@@ -162,7 +162,11 @@ fn decode_layer_name(bytes: &[u8]) -> String {
             .chunks(2)
             .map(|c| {
                 let pair = [c[0], *c.get(1).unwrap_or(&0)];
-                if be { u16::from_be_bytes(pair) } else { u16::from_le_bytes(pair) }
+                if be {
+                    u16::from_be_bytes(pair)
+                } else {
+                    u16::from_le_bytes(pair)
+                }
             })
             .collect();
         String::from_utf16_lossy(&units)
@@ -187,7 +191,10 @@ mod tests {
 
     #[test]
     fn layer_names_in_utf16_are_decoded() {
-        assert_eq!(decode_layer_name(&[0xFE, 0xFF, 0x00, 0x4C, 0x00, 0x32, 0x00, 0xE9]), "L2\u{e9}");
+        assert_eq!(
+            decode_layer_name(&[0xFE, 0xFF, 0x00, 0x4C, 0x00, 0x32, 0x00, 0xE9]),
+            "L2\u{e9}"
+        );
         assert_eq!(decode_layer_name(&[0xFF, 0xFE, 0x4C, 0x00]), "L");
         assert_eq!(decode_layer_name(b"Walls"), "Walls");
         assert_eq!(decode_layer_name(&[0x4E, 0xE9]), "N\u{e9}");

@@ -397,8 +397,10 @@ fn bluebeam_column_values_travel_with_the_annotation() {
         text("Structural"),
         text(""),
         text("Réf № <A&B> \"L2\""),
-        text("line one
-  line two"),
+        text(
+            "line one
+  line two",
+        ),
         text("4"),
         text(""),
         text("True"),
@@ -899,12 +901,7 @@ fn what_cannot_be_written_is_reported_and_bad_files_are_refused() {
     let mut parent = Annotation::square(0, Rect::new(0.0, 0.0, 5.0, 5.0), &og);
     let orphan = Annotation::popup_for(&mut parent, Rect::new(10.0, 0.0, 50.0, 40.0), &og);
     let good = Annotation::circle(0, Rect::new(0.0, 0.0, 5.0, 5.0), &og);
-    let count = Annotation::count(
-        0,
-        &[Point::new(1.0, 1.0)],
-        pl_annot::CountSymbol::Dot,
-        &og,
-    );
+    let count = Annotation::count(0, &[Point::new(1.0, 1.0)], pl_annot::CountSymbol::Dot, &og);
     let all = [
         unknown.clone(),
         foreign_text.clone(),

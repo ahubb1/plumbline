@@ -104,7 +104,9 @@ fn assemble_linearized(known: &LinLayout, contents: [&[u8]; 2]) -> (Vec<u8>, Lin
 
     // Parts 3 to 6: catalog, hint stream, first-page objects.
     begin(&mut out, &mut found, lin::CATALOG);
-    out.extend_from_slice(format!("<< /Type /Catalog /Pages {} 0 R >>\nendobj\n", lin::PAGES).as_bytes());
+    out.extend_from_slice(
+        format!("<< /Type /Catalog /Pages {} 0 R >>\nendobj\n", lin::PAGES).as_bytes(),
+    );
     found.hint.0 = out.len() as u64;
     begin(&mut out, &mut found, lin::HINT);
     // A placeholder with the shape of a hint stream: a page-offset table header and a
@@ -170,13 +172,15 @@ fn assemble_linearized(known: &LinLayout, contents: [&[u8]; 2]) -> (Vec<u8>, Lin
 /// Page 1 has the [`crate::plain`] marks plus a label; page 2 two lines and a label.
 pub fn linearized() -> Fixture {
     let mut p1 = plain_truth();
-    p1.texts.push(TextTruth::new("LINEARIZED page 1", [72.0, 740.0], 12.0));
+    p1.texts
+        .push(TextTruth::new("LINEARIZED page 1", [72.0, 740.0], 12.0));
     let mut p2 = PageTruth::new(LETTER);
     p2.segments = vec![
         Segment::new([72.0, 72.0], [540.0, 72.0], 1.0, BLACK),
         Segment::new([72.0, 200.0], [272.0, 200.0], 2.0, RED),
     ];
-    p2.texts.push(TextTruth::new("LINEARIZED page 2", [72.0, 740.0], 12.0));
+    p2.texts
+        .push(TextTruth::new("LINEARIZED page 2", [72.0, 740.0], 12.0));
     let contents = [page_content(&mut p1), page_content(&mut p2)];
     let contents = [contents[0].as_slice(), contents[1].as_slice()];
 
@@ -230,7 +234,10 @@ pub fn write_scan_set_with_unit(
     } else {
         format!(" /UserUnit {}", crate::build::num(user_unit))
     };
-    let mut w = Counting { inner: BufWriter::with_capacity(1 << 20, std::fs::File::create(path)?), pos: 0 };
+    let mut w = Counting {
+        inner: BufWriter::with_capacity(1 << 20, std::fs::File::create(path)?),
+        pos: 0,
+    };
     // Objects: 1 catalog, 2 pages, 3 font, then per page i: page 4+3i, content 5+3i, image 6+3i.
     let total = 3 + 3 * pages as u32;
     let mut offsets = vec![0u64; total as usize + 1];
@@ -239,8 +246,12 @@ pub fn write_scan_set_with_unit(
     offsets[1] = w.pos;
     w.write_all(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")?;
     offsets[2] = w.pos;
-    let kids: String = (0..pages as u32).map(|i| format!("{} 0 R ", 4 + 3 * i)).collect();
-    w.write_all(format!("2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {pages} >>\nendobj\n").as_bytes())?;
+    let kids: String = (0..pages as u32)
+        .map(|i| format!("{} 0 R ", 4 + 3 * i))
+        .collect();
+    w.write_all(
+        format!("2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {pages} >>\nendobj\n").as_bytes(),
+    )?;
     offsets[3] = w.pos;
     w.write_all(
         b"3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n",
@@ -260,8 +271,16 @@ pub fn write_scan_set_with_unit(
         )?;
         offsets[content as usize] = w.pos;
         let label = format!("SCAN-SET sheet {}", i + 1);
-        let ops = format!("q 612 0 0 792 0 0 cm /Im0 Do Q\nBT /{PAGE_FONT} 12 Tf 0 g 72 740 Td ({label}) Tj ET\n");
-        w.write_all(format!("{content} 0 obj\n<< /Length {} >>\nstream\n{ops}\nendstream\nendobj\n", ops.len()).as_bytes())?;
+        let ops = format!(
+            "q 612 0 0 792 0 0 cm /Im0 Do Q\nBT /{PAGE_FONT} 12 Tf 0 g 72 740 Td ({label}) Tj ET\n"
+        );
+        w.write_all(
+            format!(
+                "{content} 0 obj\n<< /Length {} >>\nstream\n{ops}\nendstream\nendobj\n",
+                ops.len()
+            )
+            .as_bytes(),
+        )?;
         offsets[image as usize] = w.pos;
         let data_len = u64::from(width) * u64::from(height);
         w.write_all(
@@ -291,11 +310,18 @@ pub fn write_scan_set_with_unit(
     }
     let id = hex(&file_id("scan_set"));
     w.write_all(
-        format!("trailer\n<< /Size {} /Root 1 0 R /ID [<{id}> <{id}>] >>\nstartxref\n{xref}\n%%EOF\n", total + 1)
-            .as_bytes(),
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R /ID [<{id}> <{id}>] >>\nstartxref\n{xref}\n%%EOF\n",
+            total + 1
+        )
+        .as_bytes(),
     )?;
     w.inner.flush()?;
-    Ok(ScanSet { pages, image_px, file_len: w.pos })
+    Ok(ScanSet {
+        pages,
+        image_px,
+        file_len: w.pos,
+    })
 }
 
 struct Counting<W: Write> {

@@ -298,8 +298,20 @@ impl Document {
             return Ok(());
         }
         let mut units: Option<Vec<f64>> = None;
-        let (set, scales, stamp) = match &self.origin {
-            Origin::File(path) => {
+        let working = self.structure.working.as_ref().map(|w| {
+            (
+                AnnotSet::load(&w.doc),
+                Some(ScaleStore::load(&w.doc)),
+                match &self.origin {
+                    Origin::File(path) => FileStamp::of_file(path).ok(),
+                    Origin::Memory { .. } => None,
+                },
+            )
+        });
+        let (set, scales, stamp) = match (&self.origin, working) {
+            // After a structural command the store describes the working copy.
+            (_, Some(store)) => store,
+            (Origin::File(path), None) => {
                 let stamp = FileStamp::of_file(path).ok();
                 let was_loaded = self.pdf_is_loaded();
                 let file = self.pdf()?;
@@ -315,7 +327,7 @@ impl Document {
                 }
                 (set, Some(scales), stamp)
             }
-            Origin::Memory { bytes, .. } => {
+            (Origin::Memory { bytes, .. }, None) => {
                 match PdfDocument::from_bytes(bytes.to_vec(), self.password.as_deref()) {
                     Ok(doc) => (AnnotSet::load(&doc), Some(ScaleStore::load(&doc)), None),
                     Err(e) => {
@@ -411,17 +423,26 @@ impl Document {
         self.edit.revision_base + self.editor().map_or(0, Editor::revision)
     }
 
-    /// Whether there are changes a save would write, as far as the history can tell.
+    /// After the editor was swapped for another one (a structural step, its undo or redo, a
+    /// structural save): keeps [`edit_revision`](Document::edit_revision) going up from
+    /// `old_total`, whatever the new editor's own revision.
+    pub(crate) fn rebase_edit_revision(&mut self, old_total: u64) {
+        let own = self.editor().map_or(0, Editor::revision);
+        self.edit.revision_base = (old_total + 1).saturating_sub(own);
+    }
+
+    /// Whether there are changes a save would write, as far as the history can tell: markup
+    /// changes, or structural ones (see [`crate::structure`]).
     pub fn is_modified(&self) -> bool {
-        self.editor().is_some_and(Editor::is_modified)
+        self.structure.working.is_some() || self.editor().is_some_and(Editor::is_modified)
     }
 
     pub fn can_undo(&self) -> bool {
-        self.editor().is_some_and(Editor::can_undo)
+        self.editor().is_some_and(Editor::can_undo) || self.structure.can_undo()
     }
 
     pub fn can_redo(&self) -> bool {
-        self.editor().is_some_and(Editor::can_redo)
+        self.editor().is_some_and(Editor::can_redo) || self.structure.can_redo()
     }
 
     // ---- commands ----------------------------------------------------------------------------
@@ -452,6 +473,8 @@ impl Document {
             Some(key) => editor.execute_merged(command, key),
         }?;
         if outcome.changed {
+            // A new change: a structural step that was undone cannot be redone after it.
+            self.structure.clear_redo();
             if let Some(record) = record {
                 self.journal(&record);
             }
@@ -460,10 +483,19 @@ impl Document {
         Ok(outcome)
     }
 
-    /// Takes back the most recent command. Returns whether there was one.
+    /// Takes back the most recent command: the latest markup change, or, when the store has
+    /// none left to undo, the latest structural step (see [`crate::structure`]). Returns
+    /// whether there was one.
     pub fn undo(&mut self) -> Result<bool> {
         self.refuse_while_saving()?;
         self.load_annots()?;
+        if !self.state().editor.can_undo() {
+            if !self.undo_structure()? {
+                return Ok(false);
+            }
+            self.journal(&Record::Undo);
+            return Ok(true);
+        }
         let Some(done) = self.state_mut().editor.undo() else {
             return Ok(false);
         };
@@ -483,6 +515,13 @@ impl Document {
     pub fn redo(&mut self) -> Result<bool> {
         self.refuse_while_saving()?;
         self.load_annots()?;
+        if !self.state().editor.can_redo() {
+            if !self.redo_structure()? {
+                return Ok(false);
+            }
+            self.journal(&Record::Redo);
+            return Ok(true);
+        }
         let Some(done) = self.state_mut().editor.redo() else {
             return Ok(false);
         };
@@ -944,7 +983,7 @@ impl Document {
 
     /// Appends a record to the journal, starting the journal if this is the first. A journal
     /// that cannot be written becomes a warning, once; editing goes on without it.
-    fn journal(&mut self, record: &Record) {
+    pub(crate) fn journal(&mut self, record: &Record) {
         if !self.journaling() {
             return;
         }
@@ -1026,48 +1065,96 @@ impl Document {
             return;
         }
 
-        let mut touched = Vec::new();
+        let mut touched: Vec<AnnotId> = Vec::new();
         let mut valid_len = contents.header_end;
         let mut replayed = 0usize;
         let mut problem = None;
-        {
-            let editor = &mut self.state_mut().editor;
-            for (record, end) in &contents.records {
-                let done = match record {
-                    Record::Header { .. } => Err("a second header".to_string()),
-                    Record::Do { command, merge } => match merge {
+        for (record, end) in &contents.records {
+            // A structural step (or its undo or redo) snapshots what the mirror hides: what
+            // the records so far touched is shown in the mirror first, as it was live.
+            let structural = match record {
+                Record::Structure { .. } => true,
+                Record::Undo => !self.state().editor.can_undo(),
+                Record::Redo => !self.state().editor.can_redo(),
+                _ => false,
+            };
+            if structural {
+                touched.sort();
+                touched.dedup();
+                self.sync_mirror(&touched);
+                touched.clear();
+            }
+            let done = match record {
+                Record::Header { .. } => Err("a second header".to_string()),
+                Record::Structure {
+                    command,
+                    invalidate_signatures,
+                } => {
+                    let policy = if *invalidate_signatures {
+                        pl_pdf::SignaturePolicy::Invalidate
+                    } else {
+                        pl_pdf::SignaturePolicy::Refuse
+                    };
+                    self.run_structure(command, policy)
+                        .map(|_| Vec::new())
+                        .map_err(|e| e.to_string())
+                }
+                Record::Undo if structural => match self.undo_structure() {
+                    Ok(true) => Ok(Vec::new()),
+                    Ok(false) => Err("nothing to undo".to_string()),
+                    Err(e) => Err(e.to_string()),
+                },
+                Record::Redo if structural => match self.redo_structure() {
+                    Ok(true) => Ok(Vec::new()),
+                    Ok(false) => Err("nothing to redo".to_string()),
+                    Err(e) => Err(e.to_string()),
+                },
+                Record::Do { command, merge } => {
+                    let editor = &mut self.state_mut().editor;
+                    let done = match merge {
                         None => editor.execute(command.clone()),
                         Some(key) => editor.execute_merged(command.clone(), *key),
                     }
+                    .map_err(|e| e.to_string());
+                    if done.as_ref().is_ok_and(|o| o.changed) {
+                        self.structure.clear_redo();
+                    }
+                    done.map(|o| o.touched)
+                }
+                Record::Raw { command } => self
+                    .state_mut()
+                    .editor
+                    .apply_raw(command)
                     .map(|o| o.touched)
                     .map_err(|e| e.to_string()),
-                    Record::Raw { command } => editor
-                        .apply_raw(command)
-                        .map(|o| o.touched)
-                        .map_err(|e| e.to_string()),
-                    Record::Undo => editor
-                        .undo()
-                        .map(|r| r.touched)
-                        .ok_or_else(|| "nothing to undo".to_string()),
-                    Record::Redo => editor
-                        .redo()
-                        .map(|r| r.touched)
-                        .ok_or_else(|| "nothing to redo".to_string()),
-                };
-                match done {
-                    Ok(ids) => {
-                        touched.extend(ids);
-                        valid_len = *end;
-                        replayed += 1;
-                    }
-                    Err(e) => {
-                        problem = Some(e);
-                        break;
-                    }
+                Record::Undo => self
+                    .state_mut()
+                    .editor
+                    .undo()
+                    .map(|r| r.touched)
+                    .ok_or_else(|| "nothing to undo".to_string()),
+                Record::Redo => self
+                    .state_mut()
+                    .editor
+                    .redo()
+                    .map(|r| r.touched)
+                    .ok_or_else(|| "nothing to redo".to_string()),
+            };
+            match done {
+                Ok(ids) => {
+                    touched.extend(ids);
+                    valid_len = *end;
+                    replayed += 1;
+                }
+                Err(e) => {
+                    problem = Some(e);
+                    break;
                 }
             }
         }
-        self.state_mut().editor.settle_if_clean();
+        if self.structure.working.is_none() {
+            self.state_mut().editor.settle_if_clean();
+        }
         if let Some(e) = problem {
             self.warnings.push(format!(
                 "the crash journal could only be replayed up to record {replayed} of {} ({e})",
@@ -1126,6 +1213,21 @@ impl Document {
         self.abandon_load();
         // Without loading the store: a journal from an earlier run is discarded unread.
         self.discard_journal_file();
+        if self.structure.working.is_some() {
+            // The display shows the working copy: it is reopened on the file, where nothing
+            // is hidden or moved, so the store's mirror state is simply forgotten.
+            if let Err(e) = self.drop_structure() {
+                self.warnings.push(format!(
+                    "the page display could not be reopened on the file: {e}"
+                ));
+            }
+            if let Some(state) = self.edit.state.take() {
+                self.edit.revision_base += state.editor.revision() + 1;
+            }
+            return;
+        }
+        // Structural steps that were all undone leave nothing to redo either.
+        self.structure.clear_all();
         let Some(state) = self.edit.state.take() else {
             return;
         };
@@ -1226,6 +1328,9 @@ impl Document {
     /// knows nothing of the annotation store, so unsaved annotation changes must be saved (or
     /// discarded) first.
     pub(crate) fn check_raw_save(&self) -> Result<()> {
+        if self.structure.working.is_some() {
+            return Err(DocError::UnsavedStructure);
+        }
         match self.editor() {
             Some(editor) if editor.has_unsaved() => Err(DocError::UnsavedMarkups),
             _ => Ok(()),

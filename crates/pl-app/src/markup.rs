@@ -52,6 +52,8 @@ const INVALIDATION_FRAMES: u8 = 3;
 pub enum Tool {
     Select,
     Pan,
+    /// Draws a link: a rectangle, then where it leads.
+    Link,
     Rectangle,
     Ellipse,
     Line,
@@ -102,9 +104,10 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 37] = [
+    pub const ALL: [Tool; 38] = [
         Tool::Select,
         Tool::Pan,
+        Tool::Link,
         Tool::Rectangle,
         Tool::Ellipse,
         Tool::Line,
@@ -144,7 +147,7 @@ impl Tool {
 
     /// Where a group of tools begins on the tool bar (indices into [`Tool::ALL`]). The last
     /// group is the Measure group.
-    pub const GROUP_STARTS: [usize; 5] = [2, 10, 14, 20, 24];
+    pub const GROUP_STARTS: [usize; 5] = [3, 11, 15, 21, 25];
 
     /// The measurement tools, as the Measure group of the tool bar shows them.
     pub const MEASURE: [Tool; 13] = [
@@ -183,10 +186,11 @@ impl Tool {
         )
     }
 
-    /// The pl-tools state machine behind the tool; `None` for Pan, which only moves the view.
+    /// The pl-tools state machine behind the tool; `None` for Pan, which only moves the view,
+    /// and for Link, which the window handles itself (a link is a structural edit).
     pub fn kind(self) -> Option<ToolKind> {
         Some(match self {
-            Tool::Pan => return None,
+            Tool::Pan | Tool::Link => return None,
             Tool::Calibrate => ToolKind::Calibrate,
             Tool::Viewport => ToolKind::Viewport,
             Tool::Length => ToolKind::Length,
@@ -251,6 +255,7 @@ impl Tool {
         match self {
             Tool::Select => "Select",
             Tool::Pan => "Pan",
+            Tool::Link => "Link",
             Tool::Rectangle => "Rectangle",
             Tool::Ellipse => "Ellipse",
             Tool::Line => "Line",
@@ -310,6 +315,8 @@ impl Tool {
         match self {
             Tool::Select => Key::V,
             Tool::Pan => Key::H,
+            // D for a Destination.
+            Tool::Link => Key::D,
             Tool::Rectangle => Key::R,
             Tool::Ellipse => Key::E,
             Tool::Line => Key::L,
@@ -360,7 +367,8 @@ impl Tool {
                 "Click a markup to select it, drag it to move it, drag a handle to reshape it. \
                  Drag across text to select text."
             }
-            Tool::Pan => "Drag to move the page.",
+            Tool::Pan => "Drag to move the page. Click a link to follow it.",
+            Tool::Link => "Drag the area of the link, then choose where it leads.",
             Tool::Rectangle | Tool::Ellipse | Tool::CloudBox => {
                 "Drag to draw. Shift keeps it square, Ctrl draws from the centre."
             }
@@ -417,6 +425,7 @@ impl Tool {
         match self {
             Tool::Select => Icon::Pointer,
             Tool::Pan => Icon::Pan,
+            Tool::Link => Icon::Link,
             Tool::Rectangle => Icon::Rectangle,
             Tool::Ellipse => Icon::Ellipse,
             Tool::Line => Icon::Line,
@@ -1469,6 +1478,8 @@ impl AppState {
 
     /// After any change to a document's annotations: stale tiles go, and a frame is asked for.
     pub(crate) fn after_edit(&mut self, doc: DocumentId) {
+        // A structural step (or its undo) gives the document a new display.
+        self.follow_structure_changes();
         if let Ok(d) = self.session.document_mut(doc) {
             for invalidation in d.take_invalidations() {
                 self.markup

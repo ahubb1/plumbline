@@ -65,7 +65,13 @@ pub struct Metadata {
 /// Runs `cargo metadata` for the workspace and returns its JSON.
 pub fn cargo_metadata_json(root: &Path) -> Result<String> {
     let out = util::cargo()
-        .args(["metadata", "--format-version", "1", "--filter-platform", TARGET])
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            TARGET,
+        ])
         .current_dir(root)
         .output()
         .context("could not start cargo metadata")?;
@@ -160,7 +166,9 @@ fn shipped_ids<'a>(root: &'a Value, listed: &'a [Value]) -> Option<BTreeSet<&'a 
             let ordinary = kinds
                 .iter()
                 .any(|k| k.get("kind").is_none_or(Value::is_null));
-            ordinary.then(|| dep.get("pkg").and_then(Value::as_str)).flatten()
+            ordinary
+                .then(|| dep.get("pkg").and_then(Value::as_str))
+                .flatten()
         });
         edges.entry(id).or_default().extend(normal);
     }
@@ -381,7 +389,11 @@ pub fn licence_files(dir: &Path, license_file: Option<&str>) -> Result<Vec<(Stri
     if let Some(file) = license_file {
         let given = dir.join(file);
         let by_name = Path::new(file).file_name().map(|n| dir.join(n));
-        if let Some(path) = [Some(given), by_name].into_iter().flatten().find(|p| p.is_file()) {
+        if let Some(path) = [Some(given), by_name]
+            .into_iter()
+            .flatten()
+            .find(|p| p.is_file())
+        {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             found.entry(name).or_insert(path);
         }
@@ -580,7 +592,10 @@ mod tests {
         let meta = parse_metadata(SAMPLE).unwrap();
         let names: Vec<&str> = meta.packages.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["alpha", "bare", "odd", "pl-geom", "zeta"]);
-        assert_eq!(meta.target_directory, PathBuf::from(r"C:\Dev\plumbline\target"));
+        assert_eq!(
+            meta.target_directory,
+            PathBuf::from(r"C:\Dev\plumbline\target")
+        );
         let geom = meta.packages.iter().find(|p| p.name == "pl-geom").unwrap();
         assert!(!geom.third_party);
         let odd = meta.packages.iter().find(|p| p.name == "odd").unwrap();
@@ -608,7 +623,10 @@ mod tests {
     #[test]
     fn undeclared_finds_crates_without_spdx() {
         let meta = parse_metadata(SAMPLE).unwrap();
-        let names: Vec<&str> = undeclared(&meta.packages).iter().map(|p| p.name.as_str()).collect();
+        let names: Vec<&str> = undeclared(&meta.packages)
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(names, ["bare", "odd"]);
     }
 
@@ -665,7 +683,12 @@ mod tests {
         assert!(files.contains(&("NOTICE.md".into(), "caf\u{e9}\n".into())));
         assert_eq!(
             names(files),
-            ["COPYRIGHT", "LICENSE-MIT", "NOTICE.md", "license-apache-2.0"]
+            [
+                "COPYRIGHT",
+                "LICENSE-MIT",
+                "NOTICE.md",
+                "license-apache-2.0"
+            ]
         );
         // `license-file` is taken whatever its name, also when it was moved into the package.
         let files = licence_files(d, Some("../shared/terms.txt")).unwrap();
@@ -697,20 +720,34 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["AUTHORS", "LICENSE-MIT", "LICENSES/Apache-2.0.txt", "assets/LICENSE.txt"]
+            [
+                "AUTHORS",
+                "LICENSE-MIT",
+                "LICENSES/Apache-2.0.txt",
+                "assets/LICENSE.txt"
+            ]
         );
 
         // In the combined file the embedded data's licence is headed by its path.
         let packages = [package("cmapper", Some("MIT"), Some(d))];
         let text = crate_texts(&packages).unwrap();
-        assert!(text.contains("  cmapper 1.0.0 (assets/LICENSE.txt)\n"), "{text}");
-        assert!(text.contains("data licence") && !text.contains("test data"), "{text}");
+        assert!(
+            text.contains("  cmapper 1.0.0 (assets/LICENSE.txt)\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("data licence") && !text.contains("test data"),
+            "{text}"
+        );
     }
 
     #[test]
     fn with_copyright_fills_the_template_line_only() {
         let mit = with_copyright(spdx_text("MIT").unwrap(), "Jo Doe");
-        assert!(mit.starts_with("MIT License\n\nCopyright (c) Jo Doe\n\nPermission"), "{mit}");
+        assert!(
+            mit.starts_with("MIT License\n\nCopyright (c) Jo Doe\n\nPermission"),
+            "{mit}"
+        );
         let bsd = with_copyright(spdx_text("BSD-3-Clause").unwrap(), "Jo Doe");
         assert!(bsd.starts_with("Copyright (c) Jo Doe\n"), "{bsd}");
         let apache = spdx_text("Apache-2.0").unwrap();
@@ -726,7 +763,11 @@ mod tests {
     #[test]
     fn crate_texts_shares_identical_texts_and_falls_back_to_spdx() {
         let dir = crate::util::testdir::TestDir::new("lic-texts");
-        let (a, b, c) = (dir.path().join("a"), dir.path().join("b"), dir.path().join("c"));
+        let (a, b, c) = (
+            dir.path().join("a"),
+            dir.path().join("b"),
+            dir.path().join("c"),
+        );
         for d in [&a, &b, &c] {
             std::fs::create_dir_all(d).unwrap();
         }
@@ -745,18 +786,36 @@ mod tests {
             dev_only,
         ];
         let text = crate_texts(&packages).unwrap();
-        assert!(text.starts_with("4 distinct licence texts for 3 crates."), "{text}");
+        assert!(
+            text.starts_with("4 distinct licence texts for 3 crates."),
+            "{text}"
+        );
         assert_eq!(text.matches("same mit text").count(), 1, "{text}");
-        assert!(text.contains("  alpha 1.0.0 (LICENSE-MIT)\n  beta 1.0.0 (LICENSE)\n"), "{text}");
+        assert!(
+            text.contains("  alpha 1.0.0 (LICENSE-MIT)\n  beta 1.0.0 (LICENSE)\n"),
+            "{text}"
+        );
         assert!(text.contains("b notice"), "{text}");
         assert!(text.contains("gamma 1.0.0 (its package ships no licence file: standard MIT text"));
-        assert!(text.contains("authors: A. Author <a@example.org>"), "{text}");
+        assert!(
+            text.contains("authors: A. Author <a@example.org>"),
+            "{text}"
+        );
         // The standard text's template copyright line names the crate's authors.
-        assert!(text.contains("Copyright (c) A. Author <a@example.org>\n"), "{text}");
+        assert!(
+            text.contains("Copyright (c) A. Author <a@example.org>\n"),
+            "{text}"
+        );
         assert!(!text.contains("Copyright (c) <year>"), "{text}");
-        assert!(text.contains("repository: https://example.org/repo"), "{text}");
+        assert!(
+            text.contains("repository: https://example.org/repo"),
+            "{text}"
+        );
         assert!(text.contains("Version 2.0, January 2004"), "{text}");
-        assert!(!text.contains("ours") && !text.contains("dev-only"), "{text}");
+        assert!(
+            !text.contains("ours") && !text.contains("dev-only"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -769,7 +828,10 @@ mod tests {
         ];
         let err = crate_texts(&packages).unwrap_err().to_string();
         assert!(err.contains("2 shipped crate(s)"), "{err}");
-        assert!(err.contains("bare 1.0.0") && err.contains("exotic 1.0.0"), "{err}");
+        assert!(
+            err.contains("bare 1.0.0") && err.contains("exotic 1.0.0"),
+            "{err}"
+        );
         assert!(!err.contains("fine"), "{err}");
     }
 
@@ -827,19 +889,32 @@ mod tests {
         let report = render_report(&meta.packages);
         assert!(report.contains("3 crates."), "{report}");
         for absent in ["tinted", "MPL-2.0", "harness", "codegen", "pl-testkit"] {
-            assert!(!report.contains(absent), "{absent} is in the listing:\n{report}");
+            assert!(
+                !report.contains(absent),
+                "{absent} is in the listing:\n{report}"
+            );
         }
         assert!(report.contains("  deep"), "{report}");
         // Metadata without dependency edges (the older sample) rules nothing out.
-        assert!(parse_metadata(SAMPLE).unwrap().packages.iter().all(|p| p.shipped));
+        assert!(parse_metadata(SAMPLE)
+            .unwrap()
+            .packages
+            .iter()
+            .all(|p| p.shipped));
     }
 
     /// Runs the real `cargo metadata` on this workspace.
     #[test]
     fn real_workspace_metadata_parses() {
         let meta = load(&util::workspace_root()).unwrap();
-        assert!(meta.packages.iter().any(|p| p.name == "xtask" && !p.third_party));
-        assert!(meta.packages.iter().any(|p| p.name == "anyhow" && p.third_party));
+        assert!(meta
+            .packages
+            .iter()
+            .any(|p| p.name == "xtask" && !p.third_party));
+        assert!(meta
+            .packages
+            .iter()
+            .any(|p| p.name == "anyhow" && p.third_party));
         assert!(meta.target_directory.is_absolute());
         let by_name = |name: &str| {
             meta.packages
@@ -848,11 +923,21 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} is not in the lock file"))
         };
         // What the shipped programs link, and what only tests and tools use.
-        for shipped in ["pl-app", "pl-cli", "pl-doc", "egui", "lopdf", "pdfium-render"] {
+        for shipped in [
+            "pl-app",
+            "pl-cli",
+            "pl-doc",
+            "egui",
+            "lopdf",
+            "pdfium-render",
+        ] {
             assert!(by_name(shipped).shipped, "{shipped} should be listed");
         }
         for dev_only in ["pl-testkit", "egui_kittest", "xtask"] {
-            assert!(!by_name(dev_only).shipped, "{dev_only} is linked into a shipped program");
+            assert!(
+                !by_name(dev_only).shipped,
+                "{dev_only} is linked into a shipped program"
+            );
         }
         // The one licence in the lock file outside the permissive set is dev-only, so it
         // reaches neither THIRD-PARTY-LICENSES.txt nor the zip.
@@ -860,19 +945,36 @@ mod tests {
         for p in meta.packages.iter().filter(|p| p.third_party) {
             let license = p.license.as_deref().unwrap_or("");
             if license == "MPL-2.0" {
-                assert!(!p.shipped, "{} ({license}) is linked into a shipped program", p.name);
+                assert!(
+                    !p.shipped,
+                    "{} ({license}) is linked into a shipped program",
+                    p.name
+                );
                 assert!(!report.contains(&format!("  {} ", p.name)));
             }
         }
-        assert!(!report.contains("MPL-2.0"), "an MPL-2.0 crate is in the shipped listing");
+        assert!(
+            !report.contains("MPL-2.0"),
+            "an MPL-2.0 crate is in the shipped listing"
+        );
         assert!(!report.contains("GPL-3.0") && !report.contains("AGPL"));
         // Every shipped crate has a licence text, from its package or the standard one.
         let texts = crate_texts(&meta.packages).unwrap();
-        assert!(texts.contains("  egui 0.37.0 ("), "egui has no licence text");
+        assert!(
+            texts.contains("  egui 0.37.0 ("),
+            "egui has no licence text"
+        );
         // Adobe's licence for the CMap data hayro-cmap embeds sits in its assets/ folder.
-        if let Some(cmap) = meta.packages.iter().find(|p| p.name == "hayro-cmap" && p.shipped) {
+        if let Some(cmap) = meta
+            .packages
+            .iter()
+            .find(|p| p.name == "hayro-cmap" && p.shipped)
+        {
             let heading = format!("  hayro-cmap {} (assets/LICENSE.txt)", cmap.version);
-            assert!(texts.contains(&heading), "hayro-cmap's data licence is missing");
+            assert!(
+                texts.contains(&heading),
+                "hayro-cmap's data licence is missing"
+            );
         }
         // (Upstream texts may mention `<year>` in their how-to-apply notes; the template
         // copyright line of a standard text must not survive.)

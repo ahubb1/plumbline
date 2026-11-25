@@ -29,11 +29,38 @@ pub(crate) struct LayerState {
 }
 
 impl LayerState {
-    fn at_default(&self) -> bool {
+    pub(crate) fn at_default(&self) -> bool {
         self.layers.iter().all(|l| l.visible == l.default_visible)
     }
 
-    fn off(&self) -> Vec<ObjectId> {
+    /// The layers of a restructured document (`infos`), each shown as this session showed
+    /// the same layer (by object, else by name) and new ones as their default has it.
+    pub(crate) fn remapped(&self, infos: Vec<pl_pdf::LayerInfo>) -> LayerState {
+        LayerState {
+            layers: infos
+                .into_iter()
+                .map(|l| {
+                    let before = self
+                        .layers
+                        .iter()
+                        .find(|o| o.id == l.id)
+                        .or_else(|| self.layers.iter().find(|o| o.name == l.name));
+                    let visible = match before {
+                        Some(o) if o.visible != o.default_visible => !l.default_visible,
+                        _ => l.default_visible,
+                    };
+                    Layer {
+                        id: l.id,
+                        name: l.name,
+                        default_visible: l.default_visible,
+                        visible,
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn off(&self) -> Vec<ObjectId> {
         self.layers
             .iter()
             .filter(|l| !l.visible)
@@ -80,6 +107,10 @@ impl Document {
 
     /// Runs `f` on the parsed file. A file that was not parsed before is released again.
     fn with_parsed<T>(&mut self, f: impl FnOnce(&PdfDocument) -> Result<T>) -> Result<T> {
+        // After a structural command the display shows the working copy (see `structure`).
+        if let Some(working) = &self.structure.working {
+            return f(&working.doc);
+        }
         if let Origin::Memory { bytes, .. } = &self.origin {
             let doc = PdfDocument::from_bytes(bytes.to_vec(), self.password.as_deref())?;
             return f(&doc);

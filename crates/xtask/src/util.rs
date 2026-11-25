@@ -110,10 +110,8 @@ pub mod testdir {
     impl TestDir {
         pub fn new(tag: &str) -> Self {
             let n = NEXT.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir().join(format!(
-                "plumbline-xtask-{tag}-{}-{n}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("plumbline-xtask-{tag}-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             TestDir(dir)
@@ -162,7 +160,9 @@ mod tests {
 
     #[test]
     fn mismatched_hash_fails_and_names_both_digests() {
-        let err = check_sha256("thing.tgz", ABC, EMPTY).unwrap_err().to_string();
+        let err = check_sha256("thing.tgz", ABC, EMPTY)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("SHA-256 MISMATCH"), "{err}");
         assert!(err.contains("thing.tgz"), "{err}");
         assert!(err.contains(ABC) && err.contains(EMPTY), "{err}");

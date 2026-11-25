@@ -140,83 +140,86 @@ pub fn tool_bar(app: &mut AppState, ui: &mut Ui, out: &mut Vec<Command>) {
         .resizable(false)
         .exact_size(62.0)
         .show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-            let active = app.tool();
-            let mut start = 0;
-            let ends = Tool::GROUP_STARTS
-                .into_iter()
-                .chain([Tool::ALL.len()])
-                .collect::<Vec<usize>>();
-            for end in ends {
-                for pair in Tool::ALL[start..end].chunks(2) {
-                    ui.horizontal(|ui| {
-                        for tool in pair {
-                            let name = format!("{} tool", tool.label());
-                            if icon_button_tip(
-                                ui,
-                                tool.icon(),
-                                &name,
-                                &tool.tooltip(),
-                                *tool == active,
-                            )
-                            .clicked()
-                            {
-                                out.push(Command::Tool(*tool));
-                            }
-                        }
-                    });
-                }
-                start = end;
-                ui.add_space(2.0);
-                ui.separator();
-                ui.add_space(2.0);
-            }
-            ui.horizontal(|ui| {
-                let snap_tip = format!(
-                    "Snap to drawing content ({}). Right-click for the kinds of point.",
-                    commands::SNAP_KEY.name()
-                );
-                let snap = icon_button_tip(
-                    ui,
-                    Icon::Snap,
-                    "Snap to drawing content",
-                    &snap_tip,
-                    app.snap_enabled(),
-                );
-                if snap.clicked() {
-                    out.push(Command::ToggleSnap);
-                }
-                snap.context_menu(|ui| crate::measure::snap_menu(app, ui));
-                if icon_button(
-                    ui,
-                    Icon::Sliders,
-                    "Properties panel",
-                    app.properties_panel_open(),
-                )
-                .clicked()
-                {
-                    out.push(Command::TogglePropertiesPanel);
-                }
-            });
-            ui.horizontal(|ui| {
-                let tip = format!(
-                    "Markups list ({})",
-                    ui.ctx().format_shortcut(&commands::MARKUPS_LIST)
-                );
-                if icon_button_tip(
-                    ui,
-                    Icon::List,
-                    "Markups list",
-                    &tip,
-                    app.markups_list_open(),
-                )
-                .clicked()
-                {
-                    out.push(Command::ToggleMarkupsList);
-                }
-            });
+            // On a short window the tools scroll rather than run off the bottom.
+            let scroll = egui::ScrollArea::vertical()
+                .id_salt("plumbline-tools-scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| tool_bar_body(app, ui, out));
+            theme::name_scroll_bars(ui.ctx(), scroll.id, "Tools");
         });
+}
+
+fn tool_bar_body(app: &mut AppState, ui: &mut Ui, out: &mut Vec<Command>) {
+    ui.add_space(4.0);
+    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+    let active = app.tool();
+    let mut start = 0;
+    let ends = Tool::GROUP_STARTS
+        .into_iter()
+        .chain([Tool::ALL.len()])
+        .collect::<Vec<usize>>();
+    for end in ends {
+        for pair in Tool::ALL[start..end].chunks(2) {
+            ui.horizontal(|ui| {
+                for tool in pair {
+                    let name = format!("{} tool", tool.label());
+                    if icon_button_tip(ui, tool.icon(), &name, &tool.tooltip(), *tool == active)
+                        .clicked()
+                    {
+                        out.push(Command::Tool(*tool));
+                    }
+                }
+            });
+        }
+        start = end;
+        ui.add_space(2.0);
+        ui.separator();
+        ui.add_space(2.0);
+    }
+    ui.horizontal(|ui| {
+        let snap_tip = format!(
+            "Snap to drawing content ({}). Right-click for the kinds of point.",
+            commands::SNAP_KEY.name()
+        );
+        let snap = icon_button_tip(
+            ui,
+            Icon::Snap,
+            "Snap to drawing content",
+            &snap_tip,
+            app.snap_enabled(),
+        );
+        if snap.clicked() {
+            out.push(Command::ToggleSnap);
+        }
+        snap.context_menu(|ui| crate::measure::snap_menu(app, ui));
+        if icon_button(
+            ui,
+            Icon::Sliders,
+            "Properties panel",
+            app.properties_panel_open(),
+        )
+        .clicked()
+        {
+            out.push(Command::TogglePropertiesPanel);
+        }
+    });
+    ui.horizontal(|ui| {
+        let tip = format!(
+            "Markups list ({})",
+            ui.ctx().format_shortcut(&commands::MARKUPS_LIST)
+        );
+        if icon_button_tip(
+            ui,
+            Icon::List,
+            "Markups list",
+            &tip,
+            app.markups_list_open(),
+        )
+        .clicked()
+        {
+            out.push(Command::ToggleMarkupsList);
+        }
+    });
 }
 
 // ---- menus ----------------------------------------------------------------------------------
@@ -292,6 +295,42 @@ pub fn edit_menu(app: &AppState, ui: &mut Ui, out: &mut Vec<Command>) {
             has_view,
         ) {
             out.push(Command::SelectAllMarkups);
+        }
+        ui.separator();
+        ui.menu_button("Pages", |ui| {
+            let several = app.page_targets().len() > 1;
+            let what = if several { "pages" } else { "page" };
+            for (text, command) in [
+                ("Insert blank page".to_owned(), Command::InsertBlankPage),
+                (
+                    "Insert pages from file\u{2026}".to_owned(),
+                    Command::InsertPagesFromFile,
+                ),
+                (
+                    format!("Replace {what} from file\u{2026}"),
+                    Command::ReplacePages,
+                ),
+                (
+                    format!("Extract {what} to file\u{2026}"),
+                    Command::ExtractPages,
+                ),
+                (format!("Rotate {what} clockwise"), Command::RotatePages(90)),
+                (
+                    format!("Rotate {what} anticlockwise"),
+                    Command::RotatePages(-90),
+                ),
+                (format!("Delete {what}\u{2026}"), Command::DeletePages),
+            ] {
+                if item(ui, &text, None, has_view) {
+                    out.push(command);
+                }
+            }
+        });
+        if item(ui, "Add bookmark", None, has_view) {
+            out.push(Command::AddBookmark);
+        }
+        if item(ui, "Flatten markups\u{2026}", None, has_view) {
+            out.push(Command::Flatten);
         }
         ui.separator();
         if item(
@@ -663,6 +702,8 @@ fn properties(app: &mut AppState, ui: &mut Ui) {
     }
     // A measurement's value, units, caption, depth...; or the measurement tool's.
     crate::measure::measure_properties(app, ui);
+    // A link: where it leads, and the buttons that follow it or change it.
+    crate::links::link_properties(app, ui);
     if let Some(tool) = subject.tool {
         presets_strip(app, ui, tool);
     }

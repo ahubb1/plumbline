@@ -42,6 +42,10 @@
 //!   `paste` (`page`, optional `offset`), `save`, `save_optimised`, `discard`, and `expect`
 //!   (`count`, optional `page`, optional `modified`), which fails the run when the document
 //!   does not have that many annotations.
+//! * Structural commands: `{ "op": "structure", "command": { "DeletePages": { "pages": [0] } } }`
+//!   takes a [`crate::StructCommand`] as the crash journal writes it (pages from 0 there), with
+//!   an optional `"invalidate_signatures": true`; `expect_pages` (`count`) checks the page
+//!   count.
 //! * Relative paths are relative to the command file's directory.
 //! * A run stops at the first step that fails; the error names the step.
 //!
@@ -747,6 +751,18 @@ pub enum Step {
     ExpectMeasure(ExpectMeasureSpec),
     /// Fails the run unless a page has the scale and viewports described.
     ExpectScale(ExpectScaleSpec),
+    /// A structural command (page operation, bookmark, link, flatten) in the crash journal's
+    /// form, where pages are numbered from 0 (see [`crate::structure`]).
+    Structure {
+        command: Box<crate::structure::StructCommand>,
+        /// The user has agreed that digital signatures may be invalidated.
+        #[serde(default)]
+        invalidate_signatures: bool,
+    },
+    /// Fails the run unless the document has this many pages.
+    ExpectPages {
+        count: u32,
+    },
 }
 
 impl Step {
@@ -793,6 +809,8 @@ impl Step {
             Step::Count { .. } => "count",
             Step::ExpectMeasure(_) => "expect_measure",
             Step::ExpectScale(_) => "expect_scale",
+            Step::Structure { .. } => "structure",
+            Step::ExpectPages { .. } => "expect_pages",
         }
     }
 }
@@ -1460,6 +1478,31 @@ impl Runner<'_> {
             }
             Step::ExpectMeasure(spec) => sm::expect_measure(self.doc()?, spec),
             Step::ExpectScale(spec) => sm::expect_scale(self.doc()?, spec),
+            Step::Structure {
+                command,
+                invalidate_signatures,
+            } => {
+                let policy = if *invalidate_signatures {
+                    pl_pdf::SignaturePolicy::Invalidate
+                } else {
+                    pl_pdf::SignaturePolicy::Refuse
+                };
+                let out = self
+                    .doc()?
+                    .apply_structure((**command).clone(), policy)
+                    .map_err(text)?;
+                Ok(format!(
+                    "{}; {} page(s)",
+                    out.command, out.page_map.new_page_count
+                ))
+            }
+            Step::ExpectPages { count } => {
+                let found = self.doc()?.page_count();
+                if found != *count {
+                    return Err(format!("expected {count} page(s), found {found}"));
+                }
+                Ok(format!("{found} page(s)"))
+            }
         }
     }
 

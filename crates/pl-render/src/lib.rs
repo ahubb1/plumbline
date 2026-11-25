@@ -15,6 +15,9 @@
 //! * [`TileCache`]: a byte-budgeted LRU keyed by document, page, content revision, level, x, y,
 //!   layer hash and render options; 512 MB by default.
 //! * [`MockBackend`]: a deterministic backend for tests.
+//! * [`print`](mod@print): print jobs, the pure page-to-paper layout, and banded rendering into a
+//!   [`PrintSink`] (the application's printer implements it; [`MemorySink`] is the test
+//!   device). Nothing in this crate talks to a printer.
 //!
 //! # Conventions
 //!
@@ -28,6 +31,7 @@ pub mod budget;
 pub mod cache;
 pub mod mock;
 pub mod pdfium;
+pub mod print;
 pub mod scheduler;
 pub mod text;
 pub mod types;
@@ -35,15 +39,25 @@ pub mod types;
 pub use backend::RenderBackend;
 pub use cache::{CacheStats, TileCache, TileKey, DEFAULT_CACHE_BUDGET, ENTRY_OVERHEAD};
 pub use mock::MockBackend;
-pub use pdfium::{resolve_pdfium_dll, PdfiumBackend, PAGE_HANDLE_LRU, PDFIUM_DLL_ENV, TILE_GUTTER};
+pub use pdfium::{
+    resolve_pdfium_dll, PdfiumBackend, PAGE_HANDLE_LRU, PDFIUM_DLL_ENV, TILE_GUTTER,
+    WINDOW_TRAILING_GUTTER,
+};
+pub use print::{
+    band_memory_bound, layout_job, layout_page, parse_page_range, print_job, Band, BandFormat,
+    BandRecord, BandRect, JobStart, MemorySheet, MemorySink, PagePlacement, Paper, PrintError,
+    PrintJob, PrintOrientation, PrintReport, PrintScaling, PrintSink, PrintableArea, SheetStart,
+    SinkError, AUTO_ROTATION, DEFAULT_BAND_ROWS,
+};
 pub use scheduler::{
     Generation, Job, JobKind, JobOutput, JobResult, Priority, QueuedView, Scheduler,
     SchedulerStats, StreamId, ViewRequest,
 };
 pub use text::{quad_bounds, quads_for_chars, rect_to_quad, search_page_text};
 pub use types::{
-    check_bitmap_size, page_pixel_size, thumbnail_scale, tile_grid_for, AnnotInfo, Bitmap, DocId,
-    DocInfo, DocSource, OpenRequest, OutlineItem, PageInfo, PageText, Quad, RectArray, RenderError,
-    RenderOptions, Reply, Request, SearchHit, SearchOptions, TextChar, TileRequest,
-    MAX_BITMAP_PIXELS,
+    check_bitmap_size, page_pixel_size, thumbnail_scale, tile_grid_for, window_scratch_bound,
+    AnnotInfo, Bitmap, DocId, DocInfo, DocSource, OpenRequest, OutlineItem, PageInfo, PageText,
+    Quad, RectArray, RenderError, RenderOptions, Reply, Request, SearchHit, SearchOptions,
+    TextChar, TileRequest, WindowOptions, WindowReply, WindowRequest, MAX_BITMAP_PIXELS,
+    MAX_IMAGE_SIDE,
 };

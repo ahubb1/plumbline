@@ -102,8 +102,11 @@ pub fn encoded_rustflags(remaps: &[Remap]) -> String {
 /// Sets up `cmd` (a `cargo build --release`) to build without the builder's folders in the
 /// output. `RUSTFLAGS` is removed so it cannot be mistaken for what is used.
 pub fn remap_build(cmd: &mut Command, workspace: &Path) -> Result<()> {
-    cmd.env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags(&remaps(workspace)?))
-        .env_remove("RUSTFLAGS");
+    cmd.env(
+        "CARGO_ENCODED_RUSTFLAGS",
+        encoded_rustflags(&remaps(workspace)?),
+    )
+    .env_remove("RUSTFLAGS");
     Ok(())
 }
 
@@ -135,7 +138,9 @@ fn account_tail(path: &Path) -> String {
     if names.len() >= 2 {
         format!("{}\\{}", names[names.len() - 2], names[names.len() - 1])
     } else {
-        path.to_string_lossy().trim_end_matches(['\\', '/']).to_string()
+        path.to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .to_string()
     }
 }
 
@@ -146,7 +151,10 @@ pub fn needles(home: &Path, extra: &[PathBuf]) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     push_forms(&mut out, &account_tail(home));
     for dir in extra.iter().filter(|d| !d.starts_with(home)) {
-        push_forms(&mut out, dir.to_string_lossy().trim_end_matches(['\\', '/']));
+        push_forms(
+            &mut out,
+            dir.to_string_lossy().trim_end_matches(['\\', '/']),
+        );
     }
     out
 }
@@ -160,7 +168,9 @@ fn count_ci(hay: &[u8], needle: &[u8]) -> usize {
     let mut count = 0;
     let mut i = 0;
     while i + needle.len() <= hay.len() {
-        if hay[i].to_ascii_lowercase() == first && hay[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+        if hay[i].to_ascii_lowercase() == first
+            && hay[i..i + needle.len()].eq_ignore_ascii_case(needle)
+        {
             count += 1;
             i += needle.len();
         } else {
@@ -173,7 +183,10 @@ fn count_ci(hay: &[u8], needle: &[u8]) -> usize {
 /// How often `home` (or a folder of `extra` outside it) occurs in `bytes`, in any of the
 /// forms of [`needles`].
 pub fn home_hits(bytes: &[u8], home: &Path, extra: &[PathBuf]) -> usize {
-    needles(home, extra).iter().map(|n| count_ci(bytes, n)).sum()
+    needles(home, extra)
+        .iter()
+        .map(|n| count_ci(bytes, n))
+        .sum()
 }
 
 /// A file's name alone, for messages: its full path may lie inside the home folder.
@@ -213,11 +226,12 @@ pub fn check_no_home(files: &[PathBuf], home: &Path, extra: &[PathBuf]) -> Resul
 /// build; prints what was checked, by file name.
 pub fn scan(files: &[PathBuf]) -> Result<()> {
     let home = home_dir()?;
-    let extra: Vec<PathBuf> = remaps_for(&home, env_dir("CARGO_HOME"), env_dir("RUSTUP_HOME"), &home)
-        .into_iter()
-        .filter(|r| r.to == "/cargo" || r.to == "/rustup")
-        .map(|r| r.from)
-        .collect();
+    let extra: Vec<PathBuf> =
+        remaps_for(&home, env_dir("CARGO_HOME"), env_dir("RUSTUP_HOME"), &home)
+            .into_iter()
+            .filter(|r| r.to == "/cargo" || r.to == "/rustup")
+            .map(|r| r.from)
+            .collect();
     check_no_home(files, &home, &extra)?;
     for file in files {
         println!("path scan: {} holds no home-folder path", file_name(file));
@@ -289,7 +303,10 @@ pub fn pack() -> Result<()> {
     std::fs::copy(&exe, &out).with_context(|| format!("cannot copy to {}", out.display()))?;
     let size = std::fs::metadata(&out)?.len();
     println!("single exe: {}", out.display());
-    println!("  size    {size} bytes ({:.1} MiB)", size as f64 / (1024.0 * 1024.0));
+    println!(
+        "  size    {size} bytes ({:.1} MiB)",
+        size as f64 / (1024.0 * 1024.0)
+    );
     println!("  SHA-256 {}", util::sha256_file(&out)?);
     Ok(())
 }
@@ -319,7 +336,12 @@ mod tests {
                 (ws.clone(), "/plumbline"),
             ]
         );
-        let custom = remaps_for(&home, Some("F:\\cargo".into()), Some("F:\\rustup".into()), &ws);
+        let custom = remaps_for(
+            &home,
+            Some("F:\\cargo".into()),
+            Some("F:\\rustup".into()),
+            &ws,
+        );
         assert_eq!(custom[1].from, PathBuf::from("F:\\cargo"));
         assert_eq!(custom[2].from, PathBuf::from("F:\\rustup"));
     }
@@ -351,7 +373,10 @@ mod tests {
             .collect();
         bin.extend_from_slice(&wide);
         assert_eq!(home_hits(&bin, &home, &[]), 3);
-        assert_eq!(home_hits(b"/cargo/registry/src/x.rs D:\\Homes\\build", &home, &[]), 0);
+        assert_eq!(
+            home_hits(b"/cargo/registry/src/x.rs D:\\Homes\\build", &home, &[]),
+            0
+        );
         // A trailing separator on the home value changes nothing.
         assert_eq!(home_hits(&bin, Path::new(r"D:\Homes\builder\"), &[]), 3);
         // The account is also found under another root and with doubled backslashes.
@@ -383,10 +408,16 @@ mod tests {
             .to_string();
         assert!(err.contains("dirty.exe: 1"), "{err}");
         assert!(!err.contains("clean.exe"), "{err}");
-        assert!(!err.contains("Homes"), "the message prints the home folder: {err}");
+        assert!(
+            !err.contains("Homes"),
+            "the message prints the home folder: {err}"
+        );
         // Files are named without their folder, which may lie inside the home folder.
         let folder = dir.path().to_string_lossy().into_owned();
-        assert!(!err.contains(&folder), "the message prints the file's folder: {err}");
+        assert!(
+            !err.contains(&folder),
+            "the message prints the file's folder: {err}"
+        );
     }
 
     #[test]
@@ -407,8 +438,14 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, ["THIRD-PARTY-LICENSES.txt", "pdfium.dll", "plumbline.exe"]);
-        assert_eq!(std::fs::read(payload.join("pdfium.dll")).unwrap(), b"pdfium.dll");
+        assert_eq!(
+            names,
+            ["THIRD-PARTY-LICENSES.txt", "pdfium.dll", "plumbline.exe"]
+        );
+        assert_eq!(
+            std::fs::read(payload.join("pdfium.dll")).unwrap(),
+            b"pdfium.dll"
+        );
 
         std::fs::remove_file(dist_dir.join("pdfium.dll")).unwrap();
         let err = stage_payload(&dist_dir, &payload).unwrap_err().to_string();

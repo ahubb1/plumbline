@@ -1651,6 +1651,9 @@ fn export_takeoff_csv_has_subtotals_a_total_and_the_new_columns() {
             .any(|l| !l[at("Subject")].starts_with("Subtotal") && l[at(column)] == value)
     };
     assert!(row("90.0", "Angle (\u{b0})"), "{text}");
-    assert!(row("5.00", "Radius (ft)") && row("10.00", "Diameter (ft)"), "{text}");
+    assert!(
+        row("5.00", "Radius (ft)") && row("10.00", "Diameter (ft)"),
+        "{text}"
+    );
     assert!(row("10.00", "Diameter (ft)"), "{text}");
 }

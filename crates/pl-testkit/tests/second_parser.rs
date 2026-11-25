@@ -12,18 +12,30 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 #[test]
 fn hayro_syntax_reads_every_fixture() {
     // Full-size dense sheet, small raster (its pixels are checked in the lopdf tests).
-    let options = Options { raster_px: [255, 330], ..Options::default() };
+    let options = Options {
+        raster_px: [255, 330],
+        ..Options::default()
+    };
     for fx in all_fixtures_with(&options) {
         let m = &fx.manifest;
-        let pdf = Pdf::new(fx.bytes.clone()).unwrap_or_else(|e| panic!("{}: hayro-syntax failed: {e:?}", m.name));
+        let pdf = Pdf::new(fx.bytes.clone())
+            .unwrap_or_else(|e| panic!("{}: hayro-syntax failed: {e:?}", m.name));
         let pages = pdf.pages();
         assert_eq!(pages.len(), m.page_count(), "{}: page count", m.name);
         for (i, (page, truth)) in pages.iter().zip(&m.pages).enumerate() {
             let ctx = format!("{} page {}", m.name, i + 1);
             let mb = page.media_box();
-            assert_eq!([mb.x0, mb.y0, mb.x1, mb.y1], truth.media_box, "{ctx}: MediaBox");
+            assert_eq!(
+                [mb.x0, mb.y0, mb.x1, mb.y1],
+                truth.media_box,
+                "{ctx}: MediaBox"
+            );
             let cb = page.crop_box();
-            assert_eq!([cb.x0, cb.y0, cb.x1, cb.y1], truth.visible_box(), "{ctx}: CropBox");
+            assert_eq!(
+                [cb.x0, cb.y0, cb.x1, cb.y1],
+                truth.visible_box(),
+                "{ctx}: CropBox"
+            );
             let rotate = match page.rotation() {
                 Rotation::None => 0,
                 Rotation::Horizontal => 90,
@@ -32,10 +44,16 @@ fn hayro_syntax_reads_every_fixture() {
             };
             assert_eq!(rotate, truth.rotate, "{ctx}: Rotate");
 
-            let content = page.page_stream().unwrap_or_else(|| panic!("{ctx}: no content"));
+            let content = page
+                .page_stream()
+                .unwrap_or_else(|| panic!("{ctx}: no content"));
             for t in &truth.texts {
                 let shown = format!("({}) Tj", t.text.replace('(', "\\(").replace(')', "\\)"));
-                assert!(contains(content, shown.as_bytes()), "{ctx}: text {:?} missing", t.text);
+                assert!(
+                    contains(content, shown.as_bytes()),
+                    "{ctx}: text {:?} missing",
+                    t.text
+                );
             }
             let strokes = content.windows(4).filter(|w| w == b" l S").count();
             assert_eq!(strokes, truth.segment_count, "{ctx}: stroked segments");
@@ -49,7 +67,11 @@ fn hayro_syntax_reads_every_fixture() {
             let owner = Pdf::new_with_password(fx.bytes.clone(), OWNER_PASSWORD)
                 .unwrap_or_else(|e| panic!("{}: owner password: {e:?}", m.name));
             let content = owner.pages()[1].page_stream().unwrap();
-            assert!(contains(content, encrypted_token(1).as_bytes()), "{}", m.name);
+            assert!(
+                contains(content, encrypted_token(1).as_bytes()),
+                "{}",
+                m.name
+            );
         }
     }
 }

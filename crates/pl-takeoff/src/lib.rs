@@ -51,8 +51,8 @@ pub use column::{
     ColumnId, ColumnType, CustomColumn, NumberDisplay, Schema, COLUMNS_KEY,
 };
 pub use export::{
-    file_number, to_csv, to_xlsx, CsvOptions, ExportError, FILE_EXTRA_PLACES, Report, ReportColumn, ReportLine, SHEET_GROUPS,
-    SHEET_ROWS,
+    file_number, to_csv, to_xlsx, CsvOptions, ExportError, Report, ReportColumn, ReportLine,
+    FILE_EXTRA_PLACES, SHEET_GROUPS, SHEET_ROWS,
 };
 pub use formula::{evaluate, Formula, FormulaError, Scalar};
 pub use legend::{
@@ -60,8 +60,8 @@ pub use legend::{
 };
 pub use quantity::{QuantityKind, QuantityUnits, RowMeasure};
 pub use rows::{
-    checkmark_status, count_group_key, Col, CountGroupKey, ListContext, Row, RowOptions, Table, TakeoffContext, MARKED,
-    MARKED_MODEL, UNMARKED,
+    checkmark_status, count_group_key, Col, CountGroupKey, ListContext, Row, RowOptions, Table,
+    TakeoffContext, MARKED, MARKED_MODEL, UNMARKED,
 };
 pub use sequence::Sequence;
 pub use space::{anchor, set_space_name, space_at, space_name, spaces_in, Space, SPACE_KEY};

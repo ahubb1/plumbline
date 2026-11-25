@@ -10,9 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pl_annot::{
-    AnnotId, AnnotKind, AnnotSet, Annotation, Removed, Viewport, ViewportError,
-};
+use pl_annot::{AnnotId, AnnotKind, AnnotSet, Annotation, Removed, Viewport, ViewportError};
 use pl_geom::Rect;
 use serde::{Deserialize, Serialize};
 
@@ -1575,6 +1573,12 @@ impl Editor {
         if self.saved.is_none() && !self.has_unsaved() {
             self.saved = Some(self.state_serial());
         }
+    }
+
+    /// Forgets what could be redone: a structural step is a new change (see
+    /// [`crate::structure`]).
+    pub(crate) fn clear_redo(&mut self) {
+        self.redo.clear();
     }
 
     /// Forgets the history (not the annotations).

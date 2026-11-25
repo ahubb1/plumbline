@@ -158,9 +158,7 @@ impl Scale {
         match real_unit {
             Unit::Inch => Scale::new(1.0, Unit::Inch, factor, Unit::Inch),
             // Feet and inches stay the real unit: values at this scale are shown that way.
-            Unit::Foot | Unit::FeetInches => {
-                Scale::new(1.0, Unit::Inch, factor / 12.0, real_unit)
-            }
+            Unit::Foot | Unit::FeetInches => Scale::new(1.0, Unit::Inch, factor / 12.0, real_unit),
             Unit::Point => Scale::new(1.0, Unit::Point, factor, Unit::Point),
             metric => Scale::new(1.0, metric, factor, metric),
         }

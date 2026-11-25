@@ -31,6 +31,14 @@ egui_table.workspace = true
 # The layout of the list and the columns of the user, on disk.
 serde.workspace = true
 
+# The Windows printers: the list, their paper, and GDI print jobs (`print_win32.rs`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Printing",
+    "Win32_Storage_Xps",
+] }
+
 [dev-dependencies]
 egui_kittest.workspace = true
 pl-testkit.workspace = true

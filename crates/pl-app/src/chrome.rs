@@ -21,8 +21,6 @@ const FIND_BOX_ID: &str = "plumbline-find-box";
 pub(crate) fn is_find_box(id: Id) -> bool {
     id == Id::unique(FIND_BOX_ID)
 }
-const THUMB_HEIGHT: f32 = 132.0;
-const THUMB_ROW: f32 = THUMB_HEIGHT + 26.0;
 
 /// Lays out the whole window for one frame.
 pub fn show(app: &mut AppState, ui: &mut Ui) {
@@ -86,6 +84,7 @@ pub fn show(app: &mut AppState, ui: &mut Ui) {
     for command in commands {
         app.run(&ctx, command);
     }
+    app.follow_clicked_link();
 }
 
 // ---- command bar ----------------------------------------------------------------------------
@@ -141,6 +140,20 @@ fn file_menu(app: &mut AppState, ui: &mut Ui, out: &mut Vec<Command>) {
         ui.separator();
         crate::panels::save_items(app, ui, out);
         ui.separator();
+        if menu_item(ui, "Print\u{2026}", Some(&commands::PRINT), has_view) {
+            out.push(Command::Print);
+        }
+        if menu_item(ui, "Combine files\u{2026}", None, true) {
+            out.push(Command::CombineFiles);
+        }
+        ui.separator();
+        if menu_item(ui, "Open set\u{2026}", None, true) {
+            out.push(Command::OpenSet);
+        }
+        if menu_item(ui, "New set from open files\u{2026}", None, has_view) {
+            out.push(Command::NewSet);
+        }
+        ui.separator();
         if menu_item(ui, "Close tab", Some(&commands::CLOSE_TAB), has_view) {
             out.push(Command::CloseTab);
         }
@@ -187,6 +200,32 @@ fn view_menu(app: &mut AppState, ui: &mut Ui, out: &mut Vec<Command>) {
         ];
         for (text, shortcut, command) in items {
             if menu_item(ui, text, Some(shortcut), has_view) {
+                out.push(command);
+            }
+        }
+        ui.separator();
+        let items: [(&str, &egui::KeyboardShortcut, Command); 4] = [
+            ("Back", &commands::NAVIGATE_BACK, Command::NavigateBack),
+            (
+                "Forward",
+                &commands::NAVIGATE_FORWARD,
+                Command::NavigateForward,
+            ),
+            (
+                "Next sheet of the set",
+                &commands::NEXT_SHEET,
+                Command::NextSheet,
+            ),
+            (
+                "Previous sheet of the set",
+                &commands::PREVIOUS_SHEET,
+                Command::PreviousSheet,
+            ),
+        ];
+        let has_set = app.sets.set.is_some();
+        for (i, (text, shortcut, command)) in items.into_iter().enumerate() {
+            let enabled = if i < 2 { has_view } else { has_set };
+            if menu_item(ui, text, Some(shortcut), enabled) {
                 out.push(command);
             }
         }
@@ -487,12 +526,25 @@ fn side_panel(app: &mut AppState, ui: &mut Ui) {
         ui.selectable_value(&mut app.chrome.side_page, SidePage::Thumbnails, "Pages");
         ui.selectable_value(&mut app.chrome.side_page, SidePage::Bookmarks, "Bookmarks");
         ui.selectable_value(&mut app.chrome.side_page, SidePage::Layers, "Layers");
+        if app.sets.set.is_some() {
+            ui.selectable_value(&mut app.chrome.side_page, SidePage::Set, "Set")
+                .on_hover_text("The sheets of the open drawing set");
+        }
     });
+    if app.chrome.side_page == SidePage::Set && app.sets.set.is_none() {
+        app.chrome.side_page = SidePage::Thumbnails;
+    }
     ui.separator();
+    let mut commands = Vec::new();
     match app.chrome.side_page {
-        SidePage::Thumbnails => thumbnails(app, ui),
-        SidePage::Bookmarks => bookmarks(app, ui),
+        SidePage::Thumbnails => crate::pages::thumbnails(app, ui, &mut commands),
+        SidePage::Bookmarks => crate::bookmarks::panel(app, ui),
         SidePage::Layers => layers(app, ui),
+        SidePage::Set => crate::setpanel::panel(app, ui),
+    }
+    let ctx = ui.ctx().clone();
+    for command in commands {
+        app.run(&ctx, command);
     }
 }
 
@@ -552,158 +604,6 @@ fn layers(app: &mut AppState, ui: &mut Ui) {
     }
     if reset {
         app.set_layer_visible(None, true);
-    }
-}
-
-fn thumbnails(app: &mut AppState, ui: &mut Ui) {
-    let Some(id) = app.active else {
-        return;
-    };
-    let Some(dv) = app.views.get(&id) else {
-        return;
-    };
-    let Ok((render_doc, saving)) = app
-        .session
-        .document(dv.doc)
-        .map(|d| (d.render_id(), d.is_saving()))
-    else {
-        return;
-    };
-    let count = dv.view.page_count() as usize;
-    let current = dv.shown_page();
-    let quarter_turns = dv.view.rotation().quarter_turns();
-    let palette = Palette::of(ui.visuals());
-    let mut go_to = None;
-    ui.spacing_mut().item_spacing.y = 0.0;
-    let scroll = egui::ScrollArea::vertical()
-        .id_salt("plumbline-thumbnails")
-        .auto_shrink([false, false])
-        .show_rows(ui, THUMB_ROW, count, |ui, rows| {
-            for row in rows {
-                let page = row as u32;
-                let (cell, response) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), THUMB_ROW),
-                    Sense::click(),
-                );
-                let is_current = page == current;
-                response.widget_info(|| {
-                    WidgetInfo::selected(
-                        Role::Button,
-                        true,
-                        is_current,
-                        format!("Page {} thumbnail", page + 1),
-                    )
-                });
-                if response.clicked() {
-                    go_to = Some(page);
-                }
-                if !ui.is_rect_visible(cell) {
-                    continue;
-                }
-                if !saving {
-                    app.textures.request_thumb(&app.scheduler, render_doc, page);
-                }
-                let aspect = dv
-                    .view
-                    .page_geometry(page)
-                    .map(|g| g.display_size_points())
-                    .map(|s| (s.width / s.height.max(1e-6)) as f32)
-                    .unwrap_or(0.77);
-                let max_w = (cell.width() - 28.0).max(20.0);
-                let mut size = egui::vec2(THUMB_HEIGHT * aspect, THUMB_HEIGHT);
-                if size.x > max_w {
-                    size *= max_w / size.x;
-                }
-                let image = egui::Rect::from_center_size(
-                    egui::pos2(cell.center().x, cell.top() + 6.0 + THUMB_HEIGHT / 2.0),
-                    size,
-                );
-                let painter = ui.painter();
-                painter.rect_filled(image, 0.0, palette.paper);
-                if let Some(texture) = app.textures.thumb(render_doc, page) {
-                    canvas::paint_texture(painter, texture, image, quarter_turns);
-                }
-                let edge = if is_current {
-                    Stroke::new(2.0, palette.accent)
-                } else if response.hovered() {
-                    Stroke::new(1.0, ui.visuals().widgets.hovered.bg_stroke.color)
-                } else {
-                    Stroke::new(1.0, palette.page_edge)
-                };
-                painter.rect_stroke(image, 0.0, edge, StrokeKind::Outside);
-                let color = if is_current {
-                    ui.visuals().strong_text_color()
-                } else {
-                    palette.muted_text
-                };
-                painter.text(
-                    egui::pos2(cell.center().x, cell.top() + 10.0 + THUMB_HEIGHT),
-                    egui::Align2::CENTER_TOP,
-                    (page + 1).to_string(),
-                    egui::FontId::proportional(11.5),
-                    color,
-                );
-            }
-        });
-    theme::name_scroll_bars(ui.ctx(), scroll.id, "Pages");
-    if let (Some(page), Some(dv)) = (go_to, app.views.get_mut(&id)) {
-        dv.go_to_page(page);
-    }
-}
-
-fn bookmarks(app: &mut AppState, ui: &mut Ui) {
-    let Some(id) = app.active else {
-        return;
-    };
-    let Some(doc_id) = app.views.get(&id).map(|v| v.doc) else {
-        return;
-    };
-    let Ok(doc) = app.session.document(doc_id) else {
-        return;
-    };
-    let render = doc.render_id();
-    // The outline is read by the scheduler; the panel shows it when it has arrived.
-    let Some(tree) = doc.cached_bookmarks() else {
-        ui.add_space(6.0);
-        match app.queries.outline_error(render) {
-            Some(e) => {
-                ui.weak(format!("Bookmarks could not be read: {e}"));
-            }
-            None => {
-                // Not while the document is being saved: its display is the save's.
-                if !doc.is_saving() {
-                    app.queries.want_outline(&app.scheduler, render);
-                }
-                ui.weak("Reading bookmarks...");
-            }
-        }
-        return;
-    };
-    if tree.is_empty() {
-        ui.add_space(6.0);
-        ui.weak("This document has no bookmarks.");
-        return;
-    }
-    let mut target = None;
-    let scroll = egui::ScrollArea::vertical()
-        .id_salt("plumbline-bookmarks")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for row in tree.flatten() {
-                ui.horizontal(|ui| {
-                    ui.add_space(4.0 + 14.0 * row.depth as f32);
-                    let enabled = row.node.page.is_some();
-                    let button = Button::selectable(false, row.node.title.as_str()).truncate();
-                    if ui.add_enabled(enabled, button).clicked() {
-                        target = row.node.page.map(|p| (p, row.node.x, row.node.y));
-                    }
-                });
-            }
-        });
-    theme::name_scroll_bars(ui.ctx(), scroll.id, "Bookmarks");
-    if let (Some((page, x, y)), Some(dv)) = (target, app.views.get_mut(&id)) {
-        let exact = doc.geometry_is_exact(page);
-        dv.go_to_destination(page, x, y, exact);
     }
 }
 

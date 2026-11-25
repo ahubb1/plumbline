@@ -1,15 +1,19 @@
 //! The fixture generators. Each returns the PDF bytes and its ground truth.
 
 use crate::build::{
-    array, form_xobject, group_under_node, name, number, save, text, Builder, Content, PageSpec, SaveKind,
+    array, form_xobject, group_under_node, name, number, save, text, Builder, Content, PageSpec,
+    SaveKind,
 };
 use crate::{
-    AnnotTruth, EncryptionTruth, Fixture, FormFieldTruth, GridTruth, ImageTruth, LayerTruth, Manifest,
-    OutlineTruth, PageTruth, Rect, Segment, TextTruth, XrefKind, ARCH_D, BLACK, BLUE,
+    AnnotTruth, EncryptionTruth, Fixture, FormFieldTruth, GridTruth, ImageTruth, LayerTruth,
+    Manifest, OutlineTruth, PageTruth, Rect, Segment, TextTruth, XrefKind, ARCH_D, BLACK, BLUE,
     DEFAULT_DENSE_SEGMENTS, DEFAULT_DENSE_STREAMS, DEFAULT_RASTER_PX, GREEN, LETTER, RED, YELLOW,
 };
 use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
-use lopdf::{dictionary, Dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, Stream};
+use lopdf::{
+    dictionary, Dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions,
+    Stream,
+};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -25,7 +29,12 @@ pub const FOREIGN_AUTHOR: &str = "Foreign Author";
 /// `/M` of the stand-in foreign markups in [`annotations`].
 pub const FOREIGN_DATE: &str = "D:20240102030405Z";
 
-pub(crate) fn manifest(name: &str, version: &str, kind: SaveKind, pages: Vec<PageTruth>) -> Manifest {
+pub(crate) fn manifest(
+    name: &str,
+    version: &str,
+    kind: SaveKind,
+    pages: Vec<PageTruth>,
+) -> Manifest {
     Manifest {
         name: name.to_string(),
         pdf_version: version.to_string(),
@@ -44,7 +53,7 @@ pub(crate) fn manifest(name: &str, version: &str, kind: SaveKind, pages: Vec<Pag
     }
 }
 
-fn page_spec(truth: &PageTruth) -> PageSpec {
+pub(crate) fn page_spec(truth: &PageTruth) -> PageSpec {
     PageSpec {
         media_box: truth.media_box,
         crop_box: truth.crop_box,
@@ -90,7 +99,11 @@ pub(crate) fn plain_truth() -> PageTruth {
     ];
     p.texts = vec![
         TextTruth::new("Plumbline fixture: plain page", [90.0, 690.0], 18.0),
-        TextTruth::new("The quick brown fox jumps over the lazy dog", [90.0, 660.0], 12.0),
+        TextTruth::new(
+            "The quick brown fox jumps over the lazy dog",
+            [90.0, 660.0],
+            12.0,
+        ),
         TextTruth::new("0123456789", [90.0, 620.0], 24.0),
         TextTruth::new("Scale 1/4 in = 1 ft (A-101)", [320.0, 120.0], 10.0),
     ];
@@ -103,7 +116,10 @@ pub fn plain() -> Fixture {
     let mut page = plain_truth();
     add_simple_page(&mut b, &mut page);
     let bytes = save(b.finish("plain"), SaveKind::Classic);
-    Fixture { manifest: manifest("plain", "1.4", SaveKind::Classic, vec![page]), bytes }
+    Fixture {
+        manifest: manifest("plain", "1.4", SaveKind::Classic, vec![page]),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +146,11 @@ pub fn multi_page() -> Fixture {
             Segment::new([72.0, 144.0], [72.0 + 10.0 * n, 144.0 + 5.0 * n], 1.0, BLUE),
         ];
         p.texts = vec![
-            TextTruth::new(&format!("Sheet {} of {}", i + 1, MULTI_PAGE_COUNT), [72.0, 720.0], 18.0),
+            TextTruth::new(
+                &format!("Sheet {} of {}", i + 1, MULTI_PAGE_COUNT),
+                [72.0, 720.0],
+                18.0,
+            ),
             TextTruth::new(&multi_page_token(i), [72.0, 690.0], 12.0),
         ];
         page_ids.push(add_simple_page(&mut b, &mut p));
@@ -142,7 +162,9 @@ pub fn multi_page() -> Fixture {
     let root_id = b.doc.new_object_id();
     let sections = MULTI_PAGE_COUNT / MULTI_PAGE_SECTION;
     let section_ids: Vec<_> = (0..sections).map(|_| b.doc.new_object_id()).collect();
-    let sheet_ids: Vec<_> = (0..MULTI_PAGE_COUNT).map(|_| b.doc.new_object_id()).collect();
+    let sheet_ids: Vec<_> = (0..MULTI_PAGE_COUNT)
+        .map(|_| b.doc.new_object_id())
+        .collect();
     let dest_obj = |page: lopdf::ObjectId| {
         Object::Array(vec![
             Object::Reference(page),
@@ -171,7 +193,12 @@ pub fn multi_page() -> Fixture {
             d.set("Next", Object::Reference(section_ids[s + 1]));
         }
         b.doc.objects.insert(section_ids[s], Object::Dictionary(d));
-        outline.push(OutlineTruth { title, level: 0, page_index: first_page, dest });
+        outline.push(OutlineTruth {
+            title,
+            level: 0,
+            page_index: first_page,
+            dest,
+        });
         for k in 0..MULTI_PAGE_SECTION {
             let page = first_page + k;
             let title = format!("Sheet {}", page + 1);
@@ -187,7 +214,12 @@ pub fn multi_page() -> Fixture {
                 d.set("Next", Object::Reference(sheet_ids[page + 1]));
             }
             b.doc.objects.insert(sheet_ids[page], Object::Dictionary(d));
-            outline.push(OutlineTruth { title, level: 1, page_index: page, dest });
+            outline.push(OutlineTruth {
+                title,
+                level: 1,
+                page_index: page,
+                dest,
+            });
         }
     }
     b.doc.objects.insert(
@@ -230,7 +262,13 @@ fn box_marks(label: &str, vb: Rect) -> (Vec<Segment>, Vec<TextTruth>) {
     (segments, texts)
 }
 
-fn marked_page(label: &str, media_box: Rect, crop_box: Option<Rect>, rotate: i32, user_unit: f64) -> PageTruth {
+fn marked_page(
+    label: &str,
+    media_box: Rect,
+    crop_box: Option<Rect>,
+    rotate: i32,
+    user_unit: f64,
+) -> PageTruth {
     let mut p = PageTruth::new(media_box);
     p.crop_box = crop_box;
     p.rotate = rotate;
@@ -252,7 +290,10 @@ pub fn rotated_pages() -> Fixture {
         pages.push(p);
     }
     let bytes = save(b.finish("rotated_pages"), SaveKind::Classic);
-    Fixture { manifest: manifest("rotated_pages", "1.4", SaveKind::Classic, pages), bytes }
+    Fixture {
+        manifest: manifest("rotated_pages", "1.4", SaveKind::Classic, pages),
+        bytes,
+    }
 }
 
 /// One page with `/UserUnit 2`: MediaBox 306 x 396 units, so it displays as
@@ -262,7 +303,10 @@ pub fn user_unit() -> Fixture {
     let mut p = marked_page("USERUNIT 2", [0.0, 0.0, 306.0, 396.0], None, 0, 2.0);
     add_simple_page(&mut b, &mut p);
     let bytes = save(b.finish("user_unit"), SaveKind::Classic);
-    Fixture { manifest: manifest("user_unit", "1.6", SaveKind::Classic, vec![p]), bytes }
+    Fixture {
+        manifest: manifest("user_unit", "1.6", SaveKind::Classic, vec![p]),
+        bytes,
+    }
 }
 
 /// Three pages exercising box offsets: (1) Letter MediaBox with an inset
@@ -272,18 +316,41 @@ pub fn user_unit() -> Fixture {
 pub fn crop_box() -> Fixture {
     let mut b = Builder::new("1.4");
     let mut pages = vec![
-        marked_page("CROPBOX OFFSET", LETTER, Some([36.0, 72.0, 540.0, 684.0]), 0, 1.0),
-        marked_page("MEDIABOX OFFSET", [100.0, 200.0, 712.0, 992.0], None, 0, 1.0),
-        marked_page("CROP+ROTATE 90", [100.0, 200.0, 712.0, 992.0], Some([150.0, 260.0, 650.0, 900.0]), 90, 1.0),
+        marked_page(
+            "CROPBOX OFFSET",
+            LETTER,
+            Some([36.0, 72.0, 540.0, 684.0]),
+            0,
+            1.0,
+        ),
+        marked_page(
+            "MEDIABOX OFFSET",
+            [100.0, 200.0, 712.0, 992.0],
+            None,
+            0,
+            1.0,
+        ),
+        marked_page(
+            "CROP+ROTATE 90",
+            [100.0, 200.0, 712.0, 992.0],
+            Some([150.0, 260.0, 650.0, 900.0]),
+            90,
+            1.0,
+        ),
     ];
     // Page 1 also has a segment wholly outside its CropBox (inside the MediaBox),
     // which a correct viewer clips away.
-    pages[0].segments.push(Segment::new([4.0, 20.0], [30.0, 20.0], 4.0, RED));
+    pages[0]
+        .segments
+        .push(Segment::new([4.0, 20.0], [30.0, 20.0], 4.0, RED));
     for p in &mut pages {
         add_simple_page(&mut b, p);
     }
     let bytes = save(b.finish("crop_box"), SaveKind::Classic);
-    Fixture { manifest: manifest("crop_box", "1.4", SaveKind::Classic, pages), bytes }
+    Fixture {
+        manifest: manifest("crop_box", "1.4", SaveKind::Classic, pages),
+        bytes,
+    }
 }
 
 /// The same page as [`user_unit`], saved with a cross-reference stream and the page
@@ -294,7 +361,10 @@ pub fn user_unit_in_object_stream() -> Fixture {
     let mut p = marked_page("USERUNIT OBJSTM", [0.0, 0.0, 306.0, 396.0], None, 0, 2.0);
     add_simple_page(&mut b, &mut p);
     let bytes = save(b.finish("user_unit_objstm"), SaveKind::Modern);
-    Fixture { manifest: manifest("user_unit_objstm", "1.6", SaveKind::Modern, vec![p]), bytes }
+    Fixture {
+        manifest: manifest("user_unit_objstm", "1.6", SaveKind::Modern, vec![p]),
+        bytes,
+    }
 }
 
 /// MediaBox every page of the first group of [`inherited_boxes`] inherits.
@@ -312,7 +382,13 @@ pub fn inherited_boxes() -> Fixture {
     let mut pages = Vec::new();
     let mut ids = Vec::new();
     for rotate in [0, 90, 180, 270] {
-        let mut p = marked_page(&format!("INHERIT MEDIA {rotate}"), INHERITED_MEDIA_BOX, None, rotate, 1.0);
+        let mut p = marked_page(
+            &format!("INHERIT MEDIA {rotate}"),
+            INHERITED_MEDIA_BOX,
+            None,
+            rotate,
+            1.0,
+        );
         ids.push(add_simple_page(&mut b, &mut p));
         pages.push(p);
     }
@@ -341,7 +417,10 @@ pub fn inherited_boxes() -> Fixture {
         &["CropBox"],
     );
     let bytes = save(doc, SaveKind::Classic);
-    Fixture { manifest: manifest("inherited_boxes", "1.4", SaveKind::Classic, pages), bytes }
+    Fixture {
+        manifest: manifest("inherited_boxes", "1.4", SaveKind::Classic, pages),
+        bytes,
+    }
 }
 
 /// Zero-based index of the page of [`broken_page_tree`] that cannot be loaded.
@@ -358,7 +437,11 @@ pub fn broken_page_tree() -> Fixture {
     for i in 0..3usize {
         let mut p = PageTruth::new(LETTER);
         p.segments = vec![Segment::new([72.0, 72.0], [540.0, 72.0], 1.0, BLACK)];
-        p.texts.push(TextTruth::new(&format!("BROKEN-TREE page {}", i + 1), [72.0, 740.0], 12.0));
+        p.texts.push(TextTruth::new(
+            &format!("BROKEN-TREE page {}", i + 1),
+            [72.0, 740.0],
+            12.0,
+        ));
         ids.push(add_simple_page(&mut b, &mut p));
         pages.push(p);
     }
@@ -367,7 +450,10 @@ pub fn broken_page_tree() -> Fixture {
     pages[BROKEN_PAGE_INDEX] = PageTruth::new(LETTER);
     pages[BROKEN_PAGE_INDEX].content_streams = 0;
     let bytes = save(doc, SaveKind::Classic);
-    Fixture { manifest: manifest("broken_page_tree", "1.4", SaveKind::Classic, pages), bytes }
+    Fixture {
+        manifest: manifest("broken_page_tree", "1.4", SaveKind::Classic, pages),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +475,10 @@ pub fn dense_sheet_with(count: usize, streams: usize) -> Fixture {
     let streams = streams.max(1);
     let origin = [3_600i64, 3_600];
     let usable = [252_000i64, 165_600];
-    let cols = ((count as f64 * usable[0] as f64 / usable[1] as f64).sqrt().ceil() as usize).max(1);
+    let cols = ((count as f64 * usable[0] as f64 / usable[1] as f64)
+        .sqrt()
+        .ceil() as usize)
+        .max(1);
     let rows = count.div_ceil(cols).max(1);
     let pitch = [usable[0] / cols as i64, usable[1] / rows as i64];
     let grid = GridTruth {
@@ -404,15 +493,24 @@ pub fn dense_sheet_with(count: usize, streams: usize) -> Fixture {
         width: 0.25,
         rgb: BLACK,
     };
-    assert!(grid.extent_cpt[0] >= 1 && grid.extent_cpt[1] >= 1, "too many segments for the sheet");
+    assert!(
+        grid.extent_cpt[0] >= 1 && grid.extent_cpt[1] >= 1,
+        "too many segments for the sheet"
+    );
 
     let mut p = PageTruth::new(ARCH_D);
-    p.texts = vec![TextTruth::new(&format!("DENSE SHEET {count} SEGMENTS"), [36.0, 1700.0], 14.0)];
+    p.texts = vec![TextTruth::new(
+        &format!("DENSE SHEET {count} SEGMENTS"),
+        [36.0, 1700.0],
+        14.0,
+    )];
     p.segment_count = count;
     p.content_streams = streams;
 
     // Every stream sets its own graphics state so each is valid on its own.
-    let mut bodies: Vec<String> = (0..streams).map(|_| String::from("0.25 w 0 0 0 RG\n")).collect();
+    let mut bodies: Vec<String> = (0..streams)
+        .map(|_| String::from("0.25 w 0 0 0 RG\n"))
+        .collect();
     for i in 0..count {
         let c = grid.segment_cpt(i);
         let body = &mut bodies[grid.stream_of(i)];
@@ -446,7 +544,10 @@ pub fn dense_sheet_with(count: usize, streams: usize) -> Fixture {
     let mut b = Builder::new("1.4");
     b.add_page(&page_spec(&p), contents, Dictionary::new());
     let bytes = save(b.finish("dense_sheet"), SaveKind::Classic);
-    Fixture { manifest: manifest("dense_sheet", "1.4", SaveKind::Classic, vec![p]), bytes }
+    Fixture {
+        manifest: manifest("dense_sheet", "1.4", SaveKind::Classic, vec![p]),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +557,11 @@ pub fn dense_sheet_with(count: usize, streams: usize) -> Fixture {
 fn xref_pages(b: &mut Builder, tag: &str) -> Vec<PageTruth> {
     let mut pages = Vec::new();
     for i in 0..3usize {
-        let mut p = if i == 0 { plain_truth() } else { PageTruth::new(LETTER) };
+        let mut p = if i == 0 {
+            plain_truth()
+        } else {
+            PageTruth::new(LETTER)
+        };
         if i > 0 {
             let n = i as f64;
             p.segments = vec![
@@ -464,7 +569,11 @@ fn xref_pages(b: &mut Builder, tag: &str) -> Vec<PageTruth> {
                 Segment::new([72.0, 200.0], [72.0 + 100.0 * n, 200.0], 2.0, RED),
             ];
         }
-        p.texts.push(TextTruth::new(&format!("{tag} page {}", i + 1), [72.0, 740.0], 12.0));
+        p.texts.push(TextTruth::new(
+            &format!("{tag} page {}", i + 1),
+            [72.0, 740.0],
+            12.0,
+        ));
         add_simple_page(b, &mut p);
         pages.push(p);
     }
@@ -476,7 +585,10 @@ pub fn xref_classic() -> Fixture {
     let mut b = Builder::new("1.4");
     let pages = xref_pages(&mut b, "XREF-TABLE");
     let bytes = save(b.finish("xref_classic"), SaveKind::Classic);
-    Fixture { manifest: manifest("xref_classic", "1.4", SaveKind::Classic, pages), bytes }
+    Fixture {
+        manifest: manifest("xref_classic", "1.4", SaveKind::Classic, pages),
+        bytes,
+    }
 }
 
 /// The same three pages saved as PDF 1.5 with a cross-reference stream and
@@ -485,7 +597,10 @@ pub fn xref_object_streams() -> Fixture {
     let mut b = Builder::new("1.5");
     let pages = xref_pages(&mut b, "XREF-STREAM");
     let bytes = save(b.finish("xref_object_streams"), SaveKind::Modern);
-    Fixture { manifest: manifest("xref_object_streams", "1.5", SaveKind::Modern, pages), bytes }
+    Fixture {
+        manifest: manifest("xref_object_streams", "1.5", SaveKind::Modern, pages),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -503,7 +618,11 @@ pub fn annotations() -> Fixture {
     let mut p = PageTruth::new(LETTER);
     let highlighted = TextTruth::new("Highlighted words here", [72.0, 600.0], 14.0);
     p.texts = vec![
-        TextTruth::new("Plumbline fixture: foreign annotations", [72.0, 720.0], 16.0),
+        TextTruth::new(
+            "Plumbline fixture: foreign annotations",
+            [72.0, 720.0],
+            16.0,
+        ),
         highlighted.clone(),
     ];
     p.segments = vec![Segment::new([72.0, 72.0], [540.0, 72.0], 1.0, BLACK)];
@@ -604,7 +723,10 @@ pub fn annotations() -> Fixture {
             "AP" => dictionary! { "N" => Object::Reference(ap_id) },
         };
         if t.border_width > 0.0 {
-            d.set("BS", dictionary! { "W" => number(t.border_width), "S" => name("S") });
+            d.set(
+                "BS",
+                dictionary! { "W" => number(t.border_width), "S" => name("S") },
+            );
         }
         if let Some(l) = t.line {
             d.set("L", array(&[l[0][0], l[0][1], l[1][0], l[1][1]]));
@@ -622,7 +744,10 @@ pub fn annotations() -> Fixture {
     p.annotations = truths;
 
     let bytes = save(b.finish("annotations"), SaveKind::Classic);
-    Fixture { manifest: manifest("annotations", "1.4", SaveKind::Classic, vec![p]), bytes }
+    Fixture {
+        manifest: manifest("annotations", "1.4", SaveKind::Classic, vec![p]),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -663,18 +788,30 @@ pub fn layers() -> Fixture {
     };
 
     let ocg = |b: &mut Builder, layer: &LayerTruth| {
-        b.doc.add_object(dictionary! { "Type" => name("OCG"), "Name" => text(&layer.name) })
+        b.doc
+            .add_object(dictionary! { "Type" => name("OCG"), "Name" => text(&layer.name) })
     };
     let ocg_a = ocg(&mut b, &layer_a);
     let ocg_b = ocg(&mut b, &layer_b);
 
     let mut c = Content::default();
     c.segments(&base_segments).texts(&base_texts);
-    c.raw("/OC /LA BDC").segments(&layer_a.segments).texts(&layer_a.texts).raw("EMC");
-    c.raw("/OC /LB BDC").segments(&layer_b.segments).texts(&layer_b.texts).raw("EMC");
+    c.raw("/OC /LA BDC")
+        .segments(&layer_a.segments)
+        .texts(&layer_a.texts)
+        .raw("EMC");
+    c.raw("/OC /LB BDC")
+        .segments(&layer_b.segments)
+        .texts(&layer_b.texts)
+        .raw("EMC");
 
     let mut p = PageTruth::new(LETTER);
-    p.segments = [base_segments, layer_a.segments.clone(), layer_b.segments.clone()].concat();
+    p.segments = [
+        base_segments,
+        layer_a.segments.clone(),
+        layer_b.segments.clone(),
+    ]
+    .concat();
     p.texts = [base_texts, layer_a.texts.clone(), layer_b.texts.clone()].concat();
     p.segment_count = p.segments.len();
 
@@ -724,7 +861,11 @@ pub fn acro_form() -> Fixture {
 
     let font_size = 12.0;
     let fields: Vec<FormFieldTruth> = [
-        ("project_name", "Plumbline Tower", [160.0, 690.0, 410.0, 712.0]),
+        (
+            "project_name",
+            "Plumbline Tower",
+            [160.0, 690.0, 410.0, 712.0],
+        ),
         ("sheet_number", "A-101", [160.0, 650.0, 260.0, 672.0]),
     ]
     .into_iter()
@@ -750,7 +891,9 @@ pub fn acro_form() -> Fixture {
             h - 2.0,
             crate::build::escape(&f.value)
         );
-        let ap_id = b.doc.add_object(form_xobject(ap_bbox, helv.clone(), content));
+        let ap_id = b
+            .doc
+            .add_object(form_xobject(ap_bbox, helv.clone(), content));
         ids.push(b.doc.add_object(dictionary! {
             "Type" => name("Annot"),
             "Subtype" => name("Widget"),
@@ -811,7 +954,10 @@ pub fn raster_scan() -> Fixture {
 /// # Panics
 /// If either dimension is below 20 px.
 pub fn raster_scan_with(width_px: u32, height_px: u32) -> Fixture {
-    assert!(width_px >= 20 && height_px >= 20, "image must be at least 20 x 20 px");
+    assert!(
+        width_px >= 20 && height_px >= 20,
+        "image must be at least 20 x 20 px"
+    );
     let (ux, uy) = (width_px / 20, height_px / 20);
     let dark_rects_px = vec![
         [2 * ux, 2 * uy, 8 * ux, 3 * uy],
@@ -875,7 +1021,10 @@ pub fn raster_scan_with(width_px: u32, height_px: u32) -> Fixture {
         dictionary! { "XObject" => dictionary! { "Im0" => Object::Reference(image_id) } },
     );
     let bytes = save(b.finish("raster_scan"), SaveKind::Classic);
-    Fixture { manifest: manifest("raster_scan", "1.4", SaveKind::Classic, vec![p]), bytes }
+    Fixture {
+        manifest: manifest("raster_scan", "1.4", SaveKind::Classic, vec![p]),
+        bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -917,7 +1066,12 @@ fn issued_drawing_permissions() -> Permissions {
         | Permissions::FILLABLE
 }
 
-fn encryption_truth(algorithm: &'static str, key_bits: u32, version: i64, revision: i64) -> EncryptionTruth {
+fn encryption_truth(
+    algorithm: &'static str,
+    key_bits: u32,
+    version: i64,
+    revision: i64,
+) -> EncryptionTruth {
     EncryptionTruth {
         algorithm,
         key_bits,
@@ -950,7 +1104,11 @@ pub fn encrypted_rc4() -> Fixture {
     // lopdf fills the last 16 bytes of /U with random data. For revision 3
     // those bytes are arbitrary padding that readers ignore (ISO 32000-1,
     // Algorithm 5), so zero them to keep the file reproducible.
-    let encrypt_id = doc.trailer.get(b"Encrypt").and_then(Object::as_reference).expect("/Encrypt reference");
+    let encrypt_id = doc
+        .trailer
+        .get(b"Encrypt")
+        .and_then(Object::as_reference)
+        .expect("/Encrypt reference");
     let user_value = doc
         .get_dictionary_mut(encrypt_id)
         .and_then(|d| d.get_mut(b"U"))

@@ -74,7 +74,12 @@ fn a_measurement_no_scale_covers_asks_for_one_instead_of_full_size() {
             let pts: &[(f64, f64)] = if kind == ToolKind::Length {
                 &[(100.0, 100.0), (372.0, 100.0)]
             } else {
-                &[(100.0, 100.0), (344.0, 100.0), (344.0, 244.0), (100.0, 244.0)]
+                &[
+                    (100.0, 100.0),
+                    (344.0, 100.0),
+                    (344.0, 244.0),
+                    (100.0, 244.0),
+                ]
             };
             let mut out = click_all(&mut rig, pts);
             if kind == ToolKind::Area {
@@ -82,7 +87,9 @@ fn a_measurement_no_scale_covers_asks_for_one_instead_of_full_size() {
             }
             assert_eq!(rig.view.annotations.len(), 1, "{} {kind:?}", l.name);
             assert!(
-                out.contains(&Intent::RequestMeasure(MeasureRequest::NoScale { page: PAGE })),
+                out.contains(&Intent::RequestMeasure(MeasureRequest::NoScale {
+                    page: PAGE
+                })),
                 "{} {kind:?}: {out:?}",
                 l.name
             );
@@ -662,10 +669,7 @@ fn radius_and_diameter_from_the_centre_or_three_points() {
         assert_eq!(d.measure_text().unwrap(), "\u{d8} 10.00'", "{}", l.name);
 
         // Three points on the circle of centre (136, 136) and radius 36 pixels.
-        for (kind, want) in [
-            (ToolKind::Radius, "5.00'"),
-            (ToolKind::Diameter, "10.00'"),
-        ] {
+        for (kind, want) in [(ToolKind::Radius, "5.00'"), (ToolKind::Diameter, "10.00'")] {
             let mut rig = scaled(&l, kind);
             with_preset(&mut rig, kind, |m| m.three_point = true);
             click_all(&mut rig, &[(100.0, 136.0), (136.0, 100.0)]);

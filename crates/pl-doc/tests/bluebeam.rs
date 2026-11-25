@@ -418,7 +418,11 @@ fn a_count_group_takes_subject_lock_and_column_values_on_every_marker() {
     let doc = s.document_mut(id).unwrap();
     doc.annots().unwrap();
     let columns = doc.bluebeam_columns();
-    let refno = columns.iter().find(|c| c.title == "Ref No.").unwrap().clone();
+    let refno = columns
+        .iter()
+        .find(|c| c.title == "Ref No.")
+        .unwrap()
+        .clone();
     let ref_index = refno.bluebeam.as_ref().unwrap().index;
     let head: AnnotId = doc
         .annots()
@@ -444,7 +448,8 @@ fn a_count_group_takes_subject_lock_and_column_values_on_every_marker() {
     let when = PdfDate::parse("D:20261124120000Z").unwrap();
     doc.set_subject(&head, "Renamed count", when).unwrap();
     doc.set_locked(&head, true, when).unwrap();
-    doc.set_column_text(&head, &refno, "CT-count-2", when).unwrap();
+    doc.set_column_text(&head, &refno, "CT-count-2", when)
+        .unwrap();
     // One undo step each: undoing the column value puts it back on every marker.
     assert!(doc.undo().unwrap());
     for g in &group {
@@ -480,6 +485,10 @@ fn a_count_group_takes_subject_lock_and_column_values_on_every_marker() {
     doc.annots().unwrap();
     for g in &group {
         let a = doc.annotation(g).unwrap();
-        assert_eq!(stored_text(a, ref_index).as_deref(), Some("CT-count-2"), "{g}");
+        assert_eq!(
+            stored_text(a, ref_index).as_deref(),
+            Some("CT-count-2"),
+            "{g}"
+        );
     }
 }

@@ -106,7 +106,10 @@ mod tests {
     fn subcommand_names_match_the_documented_ones() {
         let cmd = Cli::command();
         let names: Vec<&str> = cmd.get_subcommands().map(|c| c.get_name()).collect();
-        assert_eq!(names, ["fetch-pdfium", "check-dll", "dist", "pack", "licenses"]);
+        assert_eq!(
+            names,
+            ["fetch-pdfium", "check-dll", "dist", "pack", "licenses"]
+        );
     }
 
     #[test]
@@ -117,7 +120,10 @@ mod tests {
         ));
         assert!(matches!(
             Cli::parse_from(["xtask", "dist", "--no-build"]).command,
-            Cmd::Dist { no_build: true, zip: false }
+            Cmd::Dist {
+                no_build: true,
+                zip: false
+            }
         ));
         assert!(Cli::try_parse_from(["xtask", "nonsense"]).is_err());
     }

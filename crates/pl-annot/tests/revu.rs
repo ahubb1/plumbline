@@ -85,7 +85,11 @@ fn revu_values_are_worked_out_to_revus_own_strings() {
         // ...and as worked out here from the geometry and the annotation's own number
         // formats (a radius or diameter without the R or the diameter sign Plumbline's own
         // caption puts before it).
-        assert_eq!(a.measure_value_text().as_deref(), Some(want), "{want_kind:?}");
+        assert_eq!(
+            a.measure_value_text().as_deref(),
+            Some(want),
+            "{want_kind:?}"
+        );
         let m = a.measurement().unwrap();
         // Each carries its own scale: 0.25 in = 1 ft, 1/18 ft per point.
         let spec = m.spec.as_ref().expect("the annotation's own scale");
@@ -125,7 +129,11 @@ fn revu_values_are_worked_out_to_revus_own_strings() {
 fn revu_count_files_hold_their_markers_and_groups() {
     for (name, markers, groups) in [
         ("markup-space.pdf", 24, vec![1, 1, 1, 1, 1, 4, 15]),
-        ("markup-deep-spaces.pdf", 13, vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3]),
+        (
+            "markup-deep-spaces.pdf",
+            13,
+            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3],
+        ),
     ] {
         let Some(path) = sample(name) else {
             continue;
@@ -209,7 +217,10 @@ fn an_edited_revu_measurement_keeps_revus_keys_and_the_rest_is_untouched() {
     for change in &plan.modified {
         let old = dict_of(&before, change.object);
         let new = dict_of(&after, change.object);
-        for key in REVU_PRIVATE.iter().chain(&["CountStyle", "NumCounts", "Version"]) {
+        for key in REVU_PRIVATE
+            .iter()
+            .chain(&["CountStyle", "NumCounts", "Version"])
+        {
             assert_eq!(
                 old.get(key.as_bytes()).ok(),
                 new.get(key.as_bytes()).ok(),
@@ -255,7 +266,11 @@ fn an_edited_revu_radius_and_diameter_keep_revus_value_text_and_keys() {
         let old = dict_of(&before, change.object);
         let new = dict_of(&after, change.object);
         // Revu's bare value, and Revu's own rich text, which still says it.
-        assert_eq!(new.get(b"Contents").unwrap(), old.get(b"Contents").unwrap(), "{want:?}");
+        assert_eq!(
+            new.get(b"Contents").unwrap(),
+            old.get(b"Contents").unwrap(),
+            "{want:?}"
+        );
         assert_eq!(new.get(b"RC").unwrap(), old.get(b"RC").unwrap(), "{want:?}");
         // Nothing Revu's radius and diameter do not have: no fill, no line endings, no
         // caption position.
@@ -301,18 +316,40 @@ fn a_marker_added_to_a_revu_count_is_an_item_like_revus_own() {
     assert_eq!(item.get(b"IRT").unwrap(), &Object::Reference(change.object));
     // Drawn the way the first is: Revu's filled circle, /IC set and no border.
     assert_eq!(head.get(b"IC").unwrap(), item.get(b"IC").unwrap());
-    let w = |d: &Dictionary| d.get(b"BS").unwrap().as_dict().unwrap().get(b"W").unwrap().clone();
+    let w = |d: &Dictionary| {
+        d.get(b"BS")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"W")
+            .unwrap()
+            .clone()
+    };
     assert_eq!(pl_pdf::number(&w(item)), Some(0.0));
     // Revu's keys of every item, and the same measure dictionary object.
-    for key in ["Version", "DS", "Label", "DepthUnit", "CountStyle", "MeasurementTypes", "IT"] {
+    for key in [
+        "Version",
+        "DS",
+        "Label",
+        "DepthUnit",
+        "CountStyle",
+        "MeasurementTypes",
+        "IT",
+    ] {
         assert_eq!(
             head.get(key.as_bytes()).ok(),
             item.get(key.as_bytes()).ok(),
             "{key}"
         );
     }
-    assert!(matches!(head.get(b"BBMeasure").unwrap(), Object::Reference(_)));
-    assert_eq!(head.get(b"BBMeasure").unwrap(), item.get(b"BBMeasure").unwrap());
+    assert!(matches!(
+        head.get(b"BBMeasure").unwrap(),
+        Object::Reference(_)
+    ));
+    assert_eq!(
+        head.get(b"BBMeasure").unwrap(),
+        item.get(b"BBMeasure").unwrap()
+    );
     // Read back: one count of two markers.
     let back = AnnotSet::load(&after);
     assert!(!back.is_dirty());
@@ -370,14 +407,31 @@ fn a_marker_added_to_one_item_of_a_revu_group_updates_the_total_on_every_item() 
         // The label stays before the total.
         let text = |d: &Dictionary| pdf_text(d.get(b"Contents").unwrap().as_str().unwrap());
         let (was, now) = (text(old), text(new));
-        assert!(was.ends_with("15") && now.ends_with("16"), "{was:?} {now:?}");
+        assert!(
+            was.ends_with("15") && now.ends_with("16"),
+            "{was:?} {now:?}"
+        );
         assert_eq!(was.trim_end_matches("15"), now.trim_end_matches("16"));
         if change.id != *last {
             // Only the total is written on the others.
-            assert!(change.keys.iter().all(|k| ["NumCounts", "Contents", "RC"].contains(&k.as_str())), "{:?}", change.keys);
+            assert!(
+                change
+                    .keys
+                    .iter()
+                    .all(|k| ["NumCounts", "Contents", "RC"].contains(&k.as_str())),
+                "{:?}",
+                change.keys
+            );
         }
     }
-    let member = dict_of(&after, plan.modified.iter().find(|c| c.id == *last).unwrap().members[0]);
+    let member = dict_of(
+        &after,
+        plan.modified
+            .iter()
+            .find(|c| c.id == *last)
+            .unwrap()
+            .members[0],
+    );
     assert_eq!(member.get(b"NumCounts").unwrap(), &Object::Integer(16));
     // Every other object is as it was (the page's annotation array gains the new item).
     let page = before.page_id(0).unwrap();
@@ -418,7 +472,12 @@ fn p(x: f64, y: f64) -> Point {
 fn ours() -> Vec<Annotation> {
     let og = common::origin();
     let s = arch();
-    let square = vec![p(300.0, 300.0), p(372.0, 300.0), p(372.0, 372.0), p(300.0, 372.0)];
+    let square = vec![
+        p(300.0, 300.0),
+        p(372.0, 300.0),
+        p(372.0, 372.0),
+        p(300.0, 372.0),
+    ];
     let mut count = Annotation::count(
         0,
         &[p(100.0, 500.0), p(130.0, 500.0), p(160.0, 520.0)],
@@ -468,7 +527,12 @@ fn ours_read_back_by_revus_keys_alone_as_the_same_kinds_and_values() {
     let back = AnnotSet::load(&saved);
     assert!(!back.is_dirty());
     for a in &made {
-        assert_eq!(back.get(&a.id).unwrap().detached(), a.detached(), "{:?}", kind(a));
+        assert_eq!(
+            back.get(&a.id).unwrap().detached(),
+            a.detached(),
+            "{:?}",
+            kind(a)
+        );
     }
 
     // Without the private part, as Revu (or any reader of the standard and Revu keys)
@@ -506,7 +570,6 @@ fn ours_read_back_by_revus_keys_alone_as_the_same_kinds_and_values() {
             continue;
         }
         assert_eq!(got.measure_value_text(), a.measure_value_text(), "{k:?}");
-
     }
 }
 
@@ -530,7 +593,10 @@ fn our_dot_count_is_revus_filled_circle_with_its_scale_on_every_item() {
     let change = &plan.added[0];
     for object in std::iter::once(change.object).chain(change.members.iter().copied()) {
         let d = dict_of(&saved, object);
-        assert_eq!(d.get(b"CountStyle").unwrap(), &Object::Name(b"Circle".to_vec()));
+        assert_eq!(
+            d.get(b"CountStyle").unwrap(),
+            &Object::Name(b"Circle".to_vec())
+        );
         let ic: Vec<f32> = d
             .get(b"IC")
             .unwrap()
@@ -545,7 +611,10 @@ fn our_dot_count_is_revus_filled_circle_with_its_scale_on_every_item() {
     }
     let back = AnnotSet::load(&saved);
     assert!(!back.is_dirty());
-    assert_eq!(back.get(&id).unwrap().measurement().unwrap().symbol, CountSymbol::Dot);
+    assert_eq!(
+        back.get(&id).unwrap().measurement().unwrap().symbol,
+        CountSymbol::Dot
+    );
 }
 
 /// A count as an earlier version wrote it: one Ink annotation, a stroke per marker.
@@ -612,7 +681,10 @@ fn an_earlier_versions_ink_count_is_written_revus_way_on_the_next_save() {
     assert_eq!(plan.modified[0].members.len(), 2);
     let saved = work.doc().clone();
     let head = dict_of(&saved, plan.modified[0].object);
-    assert_eq!(head.get(b"Subtype").unwrap(), &Object::Name(b"Polygon".to_vec()));
+    assert_eq!(
+        head.get(b"Subtype").unwrap(),
+        &Object::Name(b"Polygon".to_vec())
+    );
     assert_eq!(
         head.get(b"IT").unwrap(),
         &Object::Name(b"PolygonCount".to_vec())
@@ -662,7 +734,10 @@ fn a_count_patched_alone_patches_its_further_annotations_too() {
     a.meta.flags = a.meta.flags.with(pl_annot::Flags::LOCKED, true);
     let (plan, _) = work.save(&set);
     assert_eq!(plan.modified.len(), 1);
-    assert!(plan.modified[0].members.is_empty(), "markers are not rewritten");
+    assert!(
+        plan.modified[0].members.is_empty(),
+        "markers are not rewritten"
+    );
     let saved = work.doc().clone();
     for object in std::iter::once(plan.modified[0].object).chain(members.iter().copied()) {
         let d = dict_of(&saved, object);

@@ -285,7 +285,12 @@ fn every_kind_has_its_analytic_value_and_round_trips_on_every_page() {
             );
             assert_eq!(a.measure_text().unwrap(), c.text, "{label} {}", c.name);
             // /Contents is the bare value, as Revu writes it (no R or diameter sign).
-            assert_eq!(a.meta.contents, a.measure_value_text(), "{label} {}", c.name);
+            assert_eq!(
+                a.meta.contents,
+                a.measure_value_text(),
+                "{label} {}",
+                c.name
+            );
             assert!(c.text.ends_with(a.meta.contents.as_deref().unwrap()));
             // The same from nothing but the geometry, the scale and the user unit.
             let m = a.measurement().unwrap();
@@ -533,7 +538,12 @@ fn the_painted_cutout_area_is_the_computed_area() {
         ];
         let holes = vec![
             vec![at(29.0, 29.0), at(69.0, 34.0), at(54.0, 74.0)],
-            vec![at(89.0, 59.0), at(119.0, 59.0), at(119.0, 99.0), at(89.0, 99.0)],
+            vec![
+                at(89.0, 59.0),
+                at(119.0, 59.0),
+                at(119.0, 99.0),
+                at(89.0, 99.0),
+            ],
         ];
         let mut area = Annotation::measure_area(
             target.page,
@@ -564,7 +574,11 @@ fn the_painted_cutout_area_is_the_computed_area() {
         let r = common::render_pdf(&backend, work.bytes(), target.page, &geometry);
         let ours = common::raster_over(&area.draw_list(), &geometry, &r.backdrop);
         let px = common::scale_for(&geometry);
-        assert_eq!(count_orange(&r.backdrop), 0, "{label}: the page has no orange");
+        assert_eq!(
+            count_orange(&r.backdrop),
+            0,
+            "{label}: the page has no orange"
+        );
         for (what, image) in [("pdfium", &r.pdfium), ("draw list", &ours)] {
             let painted = count_orange(image) as f64 / (px * px);
             assert!(
@@ -597,7 +611,11 @@ fn the_caption_pdfium_extracts_is_the_computed_value() {
             // A count's caption is drawn by the annotation of its last marker.
             let appearance = match plan.added[0].members.last() {
                 Some(last) => {
-                    let ap = dict_of(work.doc(), *last).get(b"AP").unwrap().as_dict().unwrap();
+                    let ap = dict_of(work.doc(), *last)
+                        .get(b"AP")
+                        .unwrap()
+                        .as_dict()
+                        .unwrap();
                     match ap.get(b"N").unwrap() {
                         Object::Reference(id) => *id,
                         other => panic!("{other:?}"),
@@ -952,7 +970,10 @@ fn edited_foreign_viewports_keep_what_is_not_modelled() {
         Object::Array([300, 300, 400, 400].map(Object::Integer).to_vec()),
     );
     held.set("Name", text_obj("Held"));
-    held.set("Measure", Object::Dictionary(acrobat_measure(20.0 / 72.0, true)));
+    held.set(
+        "Measure",
+        Object::Dictionary(acrobat_measure(20.0 / 72.0, true)),
+    );
     held.set("VNDRScaleId", Object::Integer(9));
     let mut private = Dictionary::new();
     private.set("VNDRNote", Object::Integer(1));
@@ -975,7 +996,11 @@ fn edited_foreign_viewports_keep_what_is_not_modelled() {
         .edit("Their geo", Rect::new(90.0, 90.0, 310.0, 290.0), None)
         .unwrap());
     assert!(vps
-        .edit("Held", Rect::new(310.0, 310.0, 410.0, 410.0), Some(eng(1.0)))
+        .edit(
+            "Held",
+            Rect::new(310.0, 310.0, 410.0, 410.0),
+            Some(eng(1.0))
+        )
         .unwrap());
     let mut edits = doc.edit();
     assert!(vps.plan(&doc, &mut edits).unwrap());

@@ -31,6 +31,31 @@ pub trait FileDialogs {
     fn pick_xfdf(&mut self) -> Option<PathBuf> {
         None
     }
+
+    /// Asks for a drawing set (`.plset`) to open. `None` when they cancel.
+    fn pick_set(&mut self) -> Option<PathBuf> {
+        None
+    }
+
+    /// Asks where to write a new drawing set, offering `suggested` as the file name. `None`
+    /// when they cancel.
+    fn save_set(&mut self, _suggested: &str) -> Option<PathBuf> {
+        None
+    }
+
+    /// Opens a web address in the user's browser, after the user has agreed in the window.
+    /// The default opens nothing.
+    fn open_url(&mut self, _url: &str) -> Result<(), String> {
+        Err("opening addresses is not available here".to_owned())
+    }
+}
+
+/// Whether an address is one a browser may be asked to open: `http`, `https` or `mailto`.
+/// Anything else (a `file:` address, a program) is refused.
+pub fn url_is_openable(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:"))
+        && !url.chars().any(|c| c.is_control())
 }
 
 /// The file formats the markups list is exported to.
@@ -114,6 +139,83 @@ impl FileDialogs for NativeDialogs {
             .add_filter("All files", &["*"])
             .pick_file()
     }
+
+    fn pick_set(&mut self) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Open drawing set")
+            .add_filter("Drawing sets", &[pl_doc::SET_EXTENSION])
+            .pick_file()
+    }
+
+    fn save_set(&mut self, suggested: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("New drawing set")
+            .add_filter("Drawing sets", &[pl_doc::SET_EXTENSION])
+            .set_file_name(suggested)
+            .save_file()
+    }
+
+    fn open_url(&mut self, url: &str) -> Result<(), String> {
+        if !url_is_openable(url) {
+            return Err(format!("{url} is not a web or mail address"));
+        }
+        shell::open(url)
+    }
+}
+
+/// Opening an address with the program Windows has for it.
+#[cfg(windows)]
+mod shell {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut core::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> isize;
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    pub fn open(url: &str) -> Result<(), String> {
+        const SW_SHOWNORMAL: i32 = 1;
+        let (verb, file) = (wide("open"), wide(url));
+        // SAFETY: both strings are NUL-terminated and outlive the call; the other pointers
+        // may be null.
+        let code = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // Values above 32 mean success.
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(format!("Windows could not open the address (code {code})"))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod shell {
+    pub fn open(_url: &str) -> Result<(), String> {
+        Err("opening addresses is only supported on Windows".to_owned())
+    }
 }
 
 /// Dialogs that answer from a prepared list and never show anything. For tests.
@@ -128,6 +230,13 @@ pub struct ScriptedDialogs {
     pub exports: VecDeque<PathBuf>,
     /// Answers to "import XFDF".
     pub imports: VecDeque<PathBuf>,
+    /// Answers to "open drawing set".
+    pub sets: VecDeque<PathBuf>,
+    /// Answers to "new drawing set".
+    pub set_saves: VecDeque<PathBuf>,
+    /// The addresses the app asked to open; nothing is ever opened. Clones share the list, so
+    /// a test keeps one.
+    pub opened_urls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl ScriptedDialogs {
@@ -161,6 +270,18 @@ impl ScriptedDialogs {
         self.saves.extend(saves);
         self
     }
+
+    /// Adds answers to the "open drawing set" dialog.
+    pub fn with_sets(mut self, sets: impl IntoIterator<Item = PathBuf>) -> ScriptedDialogs {
+        self.sets.extend(sets);
+        self
+    }
+
+    /// Adds answers to the "new drawing set" dialog.
+    pub fn with_set_saves(mut self, saves: impl IntoIterator<Item = PathBuf>) -> ScriptedDialogs {
+        self.set_saves.extend(saves);
+        self
+    }
 }
 
 impl FileDialogs for ScriptedDialogs {
@@ -182,6 +303,21 @@ impl FileDialogs for ScriptedDialogs {
 
     fn pick_xfdf(&mut self) -> Option<PathBuf> {
         self.imports.pop_front()
+    }
+
+    fn pick_set(&mut self) -> Option<PathBuf> {
+        self.sets.pop_front()
+    }
+
+    fn save_set(&mut self, _suggested: &str) -> Option<PathBuf> {
+        self.set_saves.pop_front()
+    }
+
+    fn open_url(&mut self, url: &str) -> Result<(), String> {
+        if let Ok(mut opened) = self.opened_urls.lock() {
+            opened.push(url.to_owned());
+        }
+        Ok(())
     }
 }
 

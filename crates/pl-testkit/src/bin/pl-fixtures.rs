@@ -18,14 +18,20 @@ fn parse_args() -> Result<(PathBuf, Options), String> {
         match arg.as_str() {
             "--small" => options = Options::small(),
             "--dense" => {
-                options.dense_segments = value("--dense")?.parse().map_err(|e| format!("--dense: {e}"))?;
+                options.dense_segments = value("--dense")?
+                    .parse()
+                    .map_err(|e| format!("--dense: {e}"))?;
             }
             "--streams" => {
-                options.dense_streams = value("--streams")?.parse().map_err(|e| format!("--streams: {e}"))?;
+                options.dense_streams = value("--streams")?
+                    .parse()
+                    .map_err(|e| format!("--streams: {e}"))?;
             }
             "--raster" => {
                 let v = value("--raster")?;
-                let (w, h) = v.split_once('x').ok_or("--raster expects WxH, e.g. 2550x3300")?;
+                let (w, h) = v
+                    .split_once('x')
+                    .ok_or("--raster expects WxH, e.g. 2550x3300")?;
                 options.raster_px = [
                     w.parse().map_err(|e| format!("--raster width: {e}"))?,
                     h.parse().map_err(|e| format!("--raster height: {e}"))?,

@@ -2,7 +2,9 @@
 
 use crate::{Rect, Segment, TextTruth};
 use lopdf::xref::XrefType;
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, SaveOptions, Stream, StringFormat};
+use lopdf::{
+    dictionary, Dictionary, Document, Object, ObjectId, SaveOptions, Stream, StringFormat,
+};
 
 /// Format a number for a content stream: at most 4 decimals, no trailing zeros.
 ///
@@ -49,7 +51,10 @@ pub(crate) fn text(s: &str) -> Object {
 pub(crate) fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        assert!(c.is_ascii() && !c.is_ascii_control(), "fixture text must be printable ASCII");
+        assert!(
+            c.is_ascii() && !c.is_ascii_control(),
+            "fixture text must be printable ASCII"
+        );
         if matches!(c, '(' | ')' | '\\') {
             out.push('\\');
         }
@@ -155,14 +160,27 @@ impl Builder {
             "BaseFont" => name("Helvetica"),
             "Encoding" => name("WinAnsiEncoding"),
         });
-        Self { doc, font_id, catalog: Dictionary::new(), pages_id, kids: Vec::new() }
+        Self {
+            doc,
+            font_id,
+            catalog: Dictionary::new(),
+            pages_id,
+            kids: Vec::new(),
+        }
     }
 
     /// Add a page whose `/Contents` is the given streams (an array when more than one).
     /// `extra_resources` entries are added beside `/Font << /F1 >>`.
-    pub fn add_page(&mut self, spec: &PageSpec, contents: Vec<Stream>, extra_resources: Dictionary) -> ObjectId {
-        let content_ids: Vec<Object> =
-            contents.into_iter().map(|s| Object::Reference(self.doc.add_object(s))).collect();
+    pub fn add_page(
+        &mut self,
+        spec: &PageSpec,
+        contents: Vec<Stream>,
+        extra_resources: Dictionary,
+    ) -> ObjectId {
+        let content_ids: Vec<Object> = contents
+            .into_iter()
+            .map(|s| Object::Reference(self.doc.add_object(s)))
+            .collect();
         let mut resources = dictionary! {
             "Font" => dictionary! { PAGE_FONT => Object::Reference(self.font_id) },
         };
@@ -229,7 +247,9 @@ impl Builder {
         let id = Object::String(file_id(fixture_name).to_vec(), StringFormat::Hexadecimal);
         self.doc.trailer.set("Root", Object::Reference(catalog_id));
         self.doc.trailer.set("Info", Object::Reference(info_id));
-        self.doc.trailer.set("ID", Object::Array(vec![id.clone(), id]));
+        self.doc
+            .trailer
+            .set("ID", Object::Array(vec![id.clone(), id]));
         self.doc
     }
 }
@@ -244,9 +264,13 @@ pub(crate) fn save(mut doc: Document, kind: SaveKind) -> Vec<u8> {
         SaveKind::Modern => {
             // Not the builder: its default compression level is 0, which leaves
             // object streams uncompressed. `Default` gives Flate level 6.
-            let options =
-                SaveOptions { use_object_streams: true, use_xref_streams: true, ..SaveOptions::default() };
-            doc.save_with_options(&mut out, options).expect("writing to a Vec cannot fail");
+            let options = SaveOptions {
+                use_object_streams: true,
+                use_xref_streams: true,
+                ..SaveOptions::default()
+            };
+            doc.save_with_options(&mut out, options)
+                .expect("writing to a Vec cannot fail");
         }
     }
     out

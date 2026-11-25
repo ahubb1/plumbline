@@ -279,7 +279,11 @@ pub mod synth {
     }
 
     pub fn build(spec: &Spec) -> Vec<u8> {
-        let image_base: u64 = if spec.pe32_plus { 0x1_8000_0000 } else { 0x1000_0000 };
+        let image_base: u64 = if spec.pe32_plus {
+            0x1_8000_0000
+        } else {
+            0x1000_0000
+        };
 
         // Section body: import descriptors, delay descriptors, then the name strings.
         let import_len = (spec.regular.len() + 1) * 20;
@@ -313,7 +317,11 @@ pub mod synth {
         body.extend_from_slice(&[0u8; 32]);
         body.extend_from_slice(&names);
 
-        let opt_size: usize = if spec.pe32_plus { 112 + 16 * 8 } else { 96 + 16 * 8 };
+        let opt_size: usize = if spec.pe32_plus {
+            112 + 16 * 8
+        } else {
+            96 + 16 * 8
+        };
         let mut out = vec![0u8; 0x40];
         out[0..2].copy_from_slice(b"MZ");
         out[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
@@ -430,14 +438,22 @@ mod tests {
     fn reads_regular_imports_from_pe32_plus() {
         let image = build(&Spec {
             pe32_plus: true,
-            regular: &["KERNEL32.dll", "USER32.dll", "api-ms-win-crt-heap-l1-1-0.dll"],
+            regular: &[
+                "KERNEL32.dll",
+                "USER32.dll",
+                "api-ms-win-crt-heap-l1-1-0.dll",
+            ],
             delayed: &[],
             delay_rva: true,
         });
         let got = imports(&image).unwrap();
         assert_eq!(
             got.regular,
-            ["KERNEL32.dll", "USER32.dll", "api-ms-win-crt-heap-l1-1-0.dll"]
+            [
+                "KERNEL32.dll",
+                "USER32.dll",
+                "api-ms-win-crt-heap-l1-1-0.dll"
+            ]
         );
         assert!(got.delayed.is_empty());
     }
@@ -514,7 +530,10 @@ mod tests {
         for len in 0..image.len() {
             // Every prefix must either fail cleanly or (never) equal the full answer early.
             if let Ok(partial) = imports(&image[..len]) {
-                assert_eq!(partial, full, "prefix of {len} bytes gave a different answer");
+                assert_eq!(
+                    partial, full,
+                    "prefix of {len} bytes gave a different answer"
+                );
             }
         }
     }
