@@ -23,6 +23,7 @@ use anyhow::{bail, Context, Result};
 use crate::checkdll::{self, Policy};
 use crate::fetch::{self, Layout, PDFIUM_8125};
 use crate::licenses::{self, RULE};
+use crate::manifest;
 use crate::release;
 use crate::util::{self, system_tool};
 
@@ -255,6 +256,8 @@ pub fn run(options: &Options) -> Result<PathBuf> {
         }
         checkdll::check_file(&path, Policy::NoVcRedist, true)
             .with_context(|| format!("{exe} is not a static-CRT build"))?;
+        // An exe without an asInvoker manifest may get a UAC prompt (the 0.1.0 field report).
+        manifest::check_file(&path)?;
         exes.push(path);
     }
     // No source path may name the builder's account (pdfium.dll is third-party: not scanned).
@@ -283,8 +286,16 @@ pub fn run(options: &Options) -> Result<PathBuf> {
         println!("  {rel}");
     }
 
-    if options.zip {
-        let zip = dist_root.join(format!("{DIST_NAME}.zip"));
+    let zip = dist_root.join(format!("{DIST_NAME}.zip"));
+    if !options.zip {
+        // A zip from an earlier build would no longer match the folder (and could hold exes
+        // without the manifest): remove it rather than leave it beside the new build.
+        if zip.exists() {
+            std::fs::remove_file(&zip)
+                .with_context(|| format!("removing the stale {}", zip.display()))?;
+            println!("removed the stale {}", zip.display());
+        }
+    } else {
         zip_folder(&dist_root, &zip)?;
         println!("portable zip: {}", zip.display());
         // The zip is only good if it works somewhere else: unpack it into an empty folder

@@ -1,4 +1,5 @@
-//! Minimal PE reader: lists the DLL names in the import and delay-import tables.
+//! Minimal PE reader: lists the DLL names in the import and delay-import tables, and reads the
+//! embedded application manifest.
 //!
 //! This is the fallback (and cross-check) for `dumpbin /dependents`, so the packaging check
 //! works on machines without the MSVC Build Tools.
@@ -201,6 +202,67 @@ pub fn imports(data: &[u8]) -> Result<Imports> {
     })
 }
 
+const DIR_RESOURCE: usize = 2;
+/// Resource type of the application manifest.
+const RT_MANIFEST: u32 = 24;
+/// Upper bound on the entries read from one resource directory.
+const MAX_RESOURCE_ENTRIES: usize = 4096;
+
+/// The `(id or name, offset)` entries of the resource directory at `at` (an offset into the
+/// resource section, whose file offset is `base`).
+fn resource_entries(data: &[u8], base: usize, at: u32) -> Result<Vec<(u32, u32)>> {
+    let dir = base + at as usize;
+    let count = u16_at(data, dir + 12)? as usize + u16_at(data, dir + 14)? as usize;
+    if count > MAX_RESOURCE_ENTRIES {
+        bail!("resource directory claims {count} entries");
+    }
+    (0..count)
+        .map(|i| {
+            let at = dir + 16 + i * 8;
+            Ok((u32_at(data, at)?, u32_at(data, at + 4)?))
+        })
+        .collect()
+}
+
+/// The directory an entry's offset points to, or an error when it points to data instead.
+fn subdirectory(offset: u32) -> Result<u32> {
+    if offset & 0x8000_0000 == 0 {
+        bail!("resource tree has a data entry where a directory belongs");
+    }
+    Ok(offset & 0x7fff_ffff)
+}
+
+/// The bytes of the application manifest (resource type `RT_MANIFEST`, the first name and
+/// language under it), or `None` when the image has no manifest resource.
+pub fn manifest(data: &[u8]) -> Result<Option<Vec<u8>>> {
+    let image = Image::parse(data)?;
+    let Some(rva) = image.directory(DIR_RESOURCE) else {
+        return Ok(None);
+    };
+    let base = image.offset(rva)?;
+    let Some(&(_, types)) = resource_entries(data, base, 0)?
+        .iter()
+        .find(|(id, _)| *id == RT_MANIFEST)
+    else {
+        return Ok(None);
+    };
+    let names = resource_entries(data, base, subdirectory(types)?)?;
+    let Some(&(_, name)) = names.first() else {
+        return Ok(None);
+    };
+    let languages = resource_entries(data, base, subdirectory(name)?)?;
+    let Some(&(_, entry)) = languages.first() else {
+        return Ok(None);
+    };
+    if entry & 0x8000_0000 != 0 {
+        bail!("resource tree is deeper than type, name and language");
+    }
+    let entry = base + entry as usize;
+    let (data_rva, size) = (u32_at(data, entry)?, u32_at(data, entry + 4)?);
+    let manifest = bytes(data, image.offset(data_rva)?, size as usize)?;
+    Ok(Some(manifest.to_vec()))
+}
+
 #[cfg(test)]
 pub mod synth {
     //! Builds a tiny PE image with chosen import tables, for tests only.
@@ -301,6 +363,65 @@ pub mod synth {
 }
 
 #[cfg(test)]
+pub mod synth_resources {
+    //! Adds a resource section holding one `RT_MANIFEST` to a synthetic image, for tests only.
+
+    use super::synth::{build, Spec};
+
+    fn dir(out: &mut Vec<u8>, entries: &[(u32, u32)]) {
+        let mut header = [0u8; 16];
+        header[14..16].copy_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&header);
+        for (id, offset) in entries {
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+    }
+
+    /// A PE32+ image whose only section is a resource tree with an icon directory and, when
+    /// `manifest` is given, an `RT_MANIFEST` holding those bytes.
+    pub fn with_manifest(manifest: Option<&[u8]>) -> Vec<u8> {
+        const RVA: u32 = 0x1000;
+        const RAW: usize = 0x200;
+        let mut image = build(&Spec {
+            pe32_plus: true,
+            regular: &[],
+            delayed: &[],
+            delay_rva: true,
+        });
+        image.truncate(RAW);
+        // Root (2 entries, 32 bytes) at 0, type dir at 0x20, name dir at 0x38, data entry at
+        // 0x50, data at 0x60. The icon type (3) shares the type directory; it is never read.
+        let mut body = Vec::new();
+        let mut root = vec![(3u32, 0x8000_0020u32)];
+        if manifest.is_some() {
+            root.push((24, 0x8000_0020));
+        }
+        dir(&mut body, &root);
+        body.resize(0x20, 0);
+        dir(&mut body, &[(1, 0x8000_0038)]);
+        dir(&mut body, &[(0x409, 0x50)]);
+        let bytes = manifest.unwrap_or_default();
+        body.extend_from_slice(&(RVA + 0x60).to_le_bytes());
+        body.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        body.extend_from_slice(&[0u8; 8]);
+        body.extend_from_slice(bytes);
+
+        // Point data directory 2 at the section and give the section the new size.
+        let opt = 0x40 + 4 + 20;
+        let dir2 = opt + 108 + 4 + 2 * 8;
+        image[dir2..dir2 + 4].copy_from_slice(&RVA.to_le_bytes());
+        image[dir2 + 4..dir2 + 8].copy_from_slice(&(body.len() as u32).to_le_bytes());
+        let section = opt + 112 + 16 * 8;
+        let len = (body.len() as u32).to_le_bytes();
+        image[section + 8..section + 12].copy_from_slice(&len);
+        image[section + 16..section + 20].copy_from_slice(&len);
+        image.extend_from_slice(&body);
+        image
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::synth::{build, Spec};
     use super::*;
@@ -395,6 +516,31 @@ mod tests {
             if let Ok(partial) = imports(&image[..len]) {
                 assert_eq!(partial, full, "prefix of {len} bytes gave a different answer");
             }
+        }
+    }
+
+    #[test]
+    fn reads_the_manifest_resource() {
+        let text = b"<assembly><requestedExecutionLevel level='asInvoker'/></assembly>";
+        let image = super::synth_resources::with_manifest(Some(text));
+        assert_eq!(manifest(&image).unwrap().as_deref(), Some(&text[..]));
+        // Without the RT_MANIFEST entry, or without a resource section at all: none.
+        let image = super::synth_resources::with_manifest(None);
+        assert_eq!(manifest(&image).unwrap(), None);
+        let plain = build(&Spec {
+            pe32_plus: true,
+            regular: &["KERNEL32.dll"],
+            delayed: &[],
+            delay_rva: true,
+        });
+        assert_eq!(manifest(&plain).unwrap(), None);
+    }
+
+    #[test]
+    fn truncated_resources_are_an_error_not_a_panic() {
+        let image = super::synth_resources::with_manifest(Some(b"<assembly/>"));
+        for len in 0..image.len() {
+            let _ = manifest(&image[..len]);
         }
     }
 }

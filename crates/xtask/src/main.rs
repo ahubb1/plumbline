@@ -6,6 +6,7 @@ mod checkdll;
 mod dist;
 mod fetch;
 mod licenses;
+mod manifest;
 mod pe;
 mod release;
 mod util;

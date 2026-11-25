@@ -31,6 +31,7 @@ pub mod panels;
 pub mod platform;
 pub mod queries;
 pub mod shell;
+pub mod startup;
 pub mod textedit;
 pub mod textures;
 pub mod theme;

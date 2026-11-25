@@ -31,6 +31,44 @@ The launcher that builds the single exe is in `pack/`: it embeds the release `pl
 `pack/payload/`, builds `pack/` in release mode and writes `target/dist/Plumbline.exe`,
 printing its size and SHA-256.
 
+## Troubleshooting
+
+**"Do you want to allow this app from an unknown publisher to make changes to your device?"**
+Version 0.1.0 had no application manifest, so Windows could take it for an installer and ask for
+administrator rights. 0.1.1 and later declare that they run as the current user (`asInvoker`)
+and should not ask. If you still see the prompt, you have the old file: download it again.
+Plumbline never needs administrator rights, so "No" is always a safe answer.
+
+**Nothing opens, or a message says Plumbline could not start.** Every start is written to a log:
+
+```
+%LOCALAPPDATA%\Plumbline\logs\plumbline.log
+```
+
+Paste that line into the address bar of File Explorer to open it. The log records the app
+version, the Windows version, whether the app ran as administrator, which graphics renderer was
+tried and why it failed. It holds no document contents. When it reaches 1 MB it moves to
+`plumbline.log.1` and a new one starts.
+
+**Forcing OpenGL.** Plumbline draws with wgpu (Direct3D 12 or Vulkan) and falls back to OpenGL by
+itself when wgpu fails to start, whether it reports an error or crashes before the window opens.
+If the window stays blank, flickers or the app closes later on, an outdated or unusual graphics
+driver is the usual cause; try OpenGL directly:
+
+1. Right-click `Plumbline.exe` and choose **Create shortcut** (on Windows 11, it is under
+   **Show more options**).
+2. Right-click the shortcut, choose **Properties**, and add ` --renderer glow` to the end of
+   **Target**, after the closing quote, for example `"C:\Downloads\Plumbline.exe" --renderer glow`.
+3. Start Plumbline from that shortcut.
+
+`--renderer wgpu` forces wgpu with no fallback. Setting the environment variable
+`PLUMBLINE_RENDERER` to `glow` or `wgpu` does the same for every start; the command-line flag wins
+over it.
+
+**Reporting a problem.** Send `plumbline.log` (and `plumbline.log.1` if it is there), with a
+sentence on what you did and what you saw. The log contains folder paths of this PC, which can
+include your Windows user name; edit them out if you prefer.
+
 ## Layout
 
 One cargo workspace. Library crates live under `crates/` (`pl-geom`, `pl-draw`, `pl-pdf`,

@@ -279,6 +279,7 @@ pub fn pack() -> Result<()> {
     }
     checkdll::check_file(&exe, Policy::NoVcRedist, true)
         .context("Plumbline.exe is not a static-CRT build")?;
+    crate::manifest::check_file(&exe)?;
     scan(std::slice::from_ref(&exe))?;
 
     let dist_root = dist_dir
